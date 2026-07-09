@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noFallthroughCasesInSwitch": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "types": ["chrome"],
+    "skipLibCheck": true,
+    "incremental": true
+  },
+  "include": ["src"]
+}
+

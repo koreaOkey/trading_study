@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fractal Replay Journal Preview</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+    <style>
+      body {
+        min-height: 100vh;
+        margin: 0;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+          #050607;
+        background-size: 72px 48px;
+      }
+
+      .preview-chart-line {
+        position: fixed;
+        inset: 15% 5% auto;
+        height: 52%;
+        border-bottom: 1px solid rgba(247, 248, 248, 0.12);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="preview-chart-line"></div>
+    <section class="fj-root fj-sheet-open">
+      <div class="fj-dock">
+        <div>
+          <div class="fj-kicker">Fractal Replay</div>
+          <strong>Capture dock</strong>
+        </div>
+        <span class="fj-status" data-status="ready">Backend ready</span>
+        <button class="fj-primary">Capture decision</button>
+        <span class="fj-hotkey">⌘/Ctrl + Shift + J</span>
+      </div>
+      <div class="fj-sheet">
+        <header class="fj-header">
+          <div>
+            <div class="fj-kicker">Fractal Replay</div>
+            <strong>Journal Capture</strong>
+          </div>
+          <button class="fj-icon">×</button>
+        </header>
+        <section class="fj-section">
+          <div class="fj-section-title">Extracted candidate - read only</div>
+          <div class="fj-readonly">005930 · 1D · low</div>
+        </section>
+        <section class="fj-section fj-confirmed">
+          <div class="fj-section-title">Confirmed for scoring - editable</div>
+          <div class="fj-grid">
+            <label>Symbol<input value="005930" /></label>
+            <label>Provider<input value="005930" /></label>
+            <label>TF<input value="1D" /></label>
+            <label>Date<input value="2026-07-09" /></label>
+            <label class="fj-field-wide">Decision time<input value="2026-07-09T10:32:00+09:00" /></label>
+            <label>TZ<input value="Asia/Seoul" /></label>
+            <label class="fj-field-wide">Basis<input value="unknown_unadjusted_assumed" /></label>
+            <label>Session<input value="regular" /></label>
+          </div>
+        </section>
+        <textarea>삼성전자 리플레이 후보 구간. 제공자 기준 확인 전 저장.</textarea>
+        <div class="fj-warnings">
+          <span class="fj-warning">provider_symbol_unconfirmed</span>
+          <span class="fj-warning">price_basis_unverified</span>
+        </div>
+        <div class="fj-actions">
+          <button>Long</button>
+          <button>Short</button>
+          <button>Watch</button>
+          <button>Skip</button>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>

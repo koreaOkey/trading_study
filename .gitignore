@@ -1,0 +1,14 @@
+.venv/
+.env
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.basedpyright/
+.omo/
+.qa/
+data/
+extension/node_modules/
+extension/dist/
+extension/.tsbuildinfo
+*.tsbuildinfo
+*.log

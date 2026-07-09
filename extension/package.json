@@ -1,0 +1,19 @@
+{
+  "name": "tradingview-fractal-replay-journal-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run typecheck && rm -rf dist && bun build ./src/content.ts --outfile=dist/content.js --target=browser --format=iife && bun build ./src/background.ts --outfile=dist/background.js --target=browser --format=esm && bun build ./src/options.ts --outfile=dist/options.js --target=browser --format=iife && cp manifest.json dist/manifest.json && cp options.html dist/options.html && cat src/styles.css src/actions.css > dist/styles.css",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ky": "^1.8.2",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.326",
+    "typescript": "^5.8.3"
+  }
+}

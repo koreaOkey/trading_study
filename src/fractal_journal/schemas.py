@@ -1,0 +1,139 @@
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import ClassVar, NewType
+
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+
+CaptureId = NewType("CaptureId", str)
+MAX_SCREENSHOT_DATA_URL_LENGTH = 14_000_000
+
+
+class Decision(StrEnum):
+    LONG = "long"
+    SHORT = "short"
+    SKIP = "skip"
+    WATCH = "watch"
+
+
+class WarningCode(StrEnum):
+    PROVIDER_SYMBOL_UNCONFIRMED = "provider_symbol_unconfirmed"
+    PRICE_BASIS_UNVERIFIED = "price_basis_unverified"
+    PARTIAL_DATA = "partial_data"
+    EMPTY_DATA = "empty_data"
+    REQUEST_DATE_MISMATCH = "request_date_mismatch"
+    AFTER_REGULAR_CLOSE_CLAMPED = "after_regular_close_clamped"
+    CLOSE_AUCTION_BAR = "close_auction_bar"
+    BACKEND_UNAVAILABLE = "backend_unavailable"
+    RETRY_EXHAUSTED = "retry_exhausted"
+
+
+class ProviderStatus(StrEnum):
+    CANDIDATE = "candidate"
+    READY = "ready"
+    PARTIAL = "partial"
+    MISMATCH = "mismatch"
+    EMPTY = "empty"
+
+
+class ExtractedMetadata(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    source_url: HttpUrl
+    page_title: str = Field(min_length=1, max_length=240)
+    symbol_candidate: str = Field(default="", max_length=32)
+    timeframe_candidate: str = Field(default="", max_length=16)
+    captured_at: datetime
+
+
+class ConfirmedMetadata(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    symbol: str = Field(min_length=1, max_length=32)
+    provider: str = Field(default="kis", max_length=24)
+    provider_symbol: str = Field(default="", max_length=32)
+    market_div_code: str = Field(default="J", max_length=8)
+    timeframe: str = Field(min_length=1, max_length=16)
+    trade_date: str = Field(min_length=4, max_length=20)
+    decision_time_exchange: str = Field(default="", max_length=40)
+    exchange_tz: str = Field(default="Asia/Seoul", max_length=64)
+    price_basis: str = Field(default="unknown_unadjusted_assumed", max_length=40)
+    session_state: str = Field(default="regular", max_length=32)
+    provider_status: ProviderStatus = ProviderStatus.CANDIDATE
+    scenario: str = Field(default="wait", max_length=24)
+    confidence: int = Field(default=3, ge=1, le=5)
+    invalidation: str = Field(default="", max_length=400)
+
+
+class CaptureCreate(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    screenshot_data_url: str = Field(
+        min_length=32,
+        max_length=MAX_SCREENSHOT_DATA_URL_LENGTH,
+    )
+    extracted: ExtractedMetadata
+    confirmed: ConfirmedMetadata
+    decision: Decision
+    notes: str = Field(default="", max_length=2000)
+    warnings: tuple[WarningCode, ...] = Field(default_factory=tuple)
+
+
+class CaptureRecord(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    id: CaptureId
+    created_at: datetime
+    screenshot_sha256: str
+    screenshot_path: str
+    extracted: ExtractedMetadata
+    confirmed: ConfirmedMetadata
+    decision: Decision
+    notes: str
+    warnings: tuple[WarningCode, ...]
+
+
+class CaptureResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    capture: CaptureRecord
+
+
+class CaptureDetailResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    capture: CaptureRecord
+    score_status: str
+    ai_review_status: str
+
+
+class CaptureListResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    captures: tuple[CaptureRecord, ...]
+
+
+class HealthResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    status: str = "ok"
+    service: str = "tradingview-fractal-replay-backend"
+    version: str = "dev"
+    checks: dict[str, str]
+    checked_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class SessionResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    session_id: str = "local-default"
+    label: str = "Local Replay Journal"
+    provider_required_warnings: tuple[WarningCode, ...] = (
+        WarningCode.PROVIDER_SYMBOL_UNCONFIRMED,
+        WarningCode.PRICE_BASIS_UNVERIFIED,
+    )
+
+
+class ErrorResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    detail: str

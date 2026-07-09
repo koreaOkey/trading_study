@@ -1,0 +1,45 @@
+.fj-utility-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 14px 12px;
+}
+
+.fj-utility-actions button {
+  min-height: 34px;
+  color: var(--fj-text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--fj-border);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.fj-utility-actions button:hover {
+  border-color: rgba(113, 112, 255, 0.55);
+  background: rgba(113, 112, 255, 0.18);
+}
+
+.fj-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.fj-actions button {
+  min-height: 42px;
+  color: var(--fj-text);
+  background: rgba(255, 255, 255, 0.04);
+  border: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.fj-actions button:hover {
+  background: rgba(113, 112, 255, 0.32);
+}
