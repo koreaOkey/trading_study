@@ -4,15 +4,15 @@ import { bindUtilityActionButtons } from "../src/utilityActions"
 import type { UtilityActionWorkflow } from "../src/utilityActions"
 
 class FakeButton {
-  private clickListener: (() => void) | null = null
+  private clickListener: ((event: MouseEvent) => void) | null = null
 
-  addEventListener(type: "click", listener: () => void): void {
+  addEventListener(type: "click", listener: (event: MouseEvent) => void): void {
     expect(type).toBe("click")
     this.clickListener = listener
   }
 
-  click(): void {
-    this.clickListener?.()
+  click(isTrusted: boolean): void {
+    this.clickListener?.({ isTrusted } as MouseEvent)
   }
 }
 
@@ -54,11 +54,31 @@ describe("utility action buttons", () => {
 
     // When
     bindUtilityActionButtons(root, workflow)
-    root.saveDraft.click()
-    root.retry.click()
-    root.copyPayload.click()
+    root.saveDraft.click(true)
+    root.retry.click(true)
+    root.copyPayload.click(true)
 
     // Then
     expect(calls).toEqual(["save-draft", "retry", "copy-payload"])
+  })
+
+  test("ignores synthetic utility clicks from the host page", () => {
+    // Given
+    const calls: string[] = []
+    const root = new FakeRoot()
+    const workflow: UtilityActionWorkflow = {
+      saveDraftAction: async () => { calls.push("save-draft") },
+      retry: async () => { calls.push("retry") },
+      copyPayload: async () => { calls.push("copy-payload") },
+    }
+
+    // When
+    bindUtilityActionButtons(root, workflow)
+    root.saveDraft.click(false)
+    root.retry.click(false)
+    root.copyPayload.click(false)
+
+    // Then
+    expect(calls).toEqual([])
   })
 })

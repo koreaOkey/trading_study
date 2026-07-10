@@ -26,6 +26,12 @@ Load `extension/dist` as an unpacked Chrome extension. Open the extension
 options screen, set `http://127.0.0.1:8766`, and set the same API token as the
 backend.
 
-On TradingView, click the extension action icon once to grant `activeTab` and
-open the capture sheet. The overlay can then capture the visible tab without
-requesting broad `<all_urls>` permission.
+The overlay intentionally runs inside the TradingView page. Treat extracted
+chart and replay values as candidates, and do not enter secrets in journal
+fields: the host page can observe browser input events. The API token remains
+in extension-local storage and is used only for loopback requests.
+
+On TradingView, click the extension action icon to open the capture sheet. The
+extension supports localized TradingView subdomains, reads the active chart and
+Bar Replay point, and captures the visible tab without requesting broad
+`<all_urls>` permission.

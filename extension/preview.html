@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Fractal Replay Journal Preview</title>
     <link rel="stylesheet" href="./src/styles.css" />
+    <link rel="stylesheet" href="./src/actions.css" />
     <style>
       body {
         min-height: 100vh;
@@ -44,9 +45,10 @@
           </div>
           <button class="fj-icon">×</button>
         </header>
+        <div class="fj-sheet-scroll">
         <section class="fj-section">
           <div class="fj-section-title">Extracted candidate - read only</div>
-          <div class="fj-readonly">005930 · 1D · low</div>
+          <div class="fj-readonly">005930 · 1D · replay 2026-07-09T10:32:00+09:00</div>
         </section>
         <section class="fj-section fj-confirmed">
           <div class="fj-section-title">Confirmed for scoring - editable</div>
@@ -54,7 +56,6 @@
             <label>Symbol<input value="005930" /></label>
             <label>Provider<input value="005930" /></label>
             <label>TF<input value="1D" /></label>
-            <label>Date<input value="2026-07-09" /></label>
             <label class="fj-field-wide">Decision time<input value="2026-07-09T10:32:00+09:00" /></label>
             <label>TZ<input value="Asia/Seoul" /></label>
             <label class="fj-field-wide">Basis<input value="unknown_unadjusted_assumed" /></label>
@@ -65,6 +66,7 @@
         <div class="fj-warnings">
           <span class="fj-warning">provider_symbol_unconfirmed</span>
           <span class="fj-warning">price_basis_unverified</span>
+        </div>
         </div>
         <div class="fj-actions">
           <button>Long</button>

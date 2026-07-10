@@ -3,6 +3,7 @@ import { buildPayload } from "./metadata"
 import { checkBackendHealth, retryCapture, saveCapture } from "./messages"
 import { clearRetryPayload, copyText, loadRetryPayload, storeRetryPayload } from "./retryPayload"
 import { getSettings, saveDraft } from "./storage"
+import type { CandidateMetadata } from "./metadata"
 import type { CaptureDraftPayload, CapturePayload, Decision, WarningCode } from "./types"
 
 export type CaptureWorkflow = {
@@ -21,6 +22,8 @@ const initialWarnings: readonly WarningCode[] = [
 export const createCaptureWorkflow = (
   root: HTMLElement,
   closeSheet: () => void,
+  getCandidate: () => CandidateMetadata,
+  refreshCandidate: () => Promise<CandidateMetadata | null>,
 ): CaptureWorkflow => {
   let currentDraftDecision: Decision = "watch"
 
@@ -71,7 +74,8 @@ export const createCaptureWorkflow = (
     currentDraftDecision = decision
     setState(root, { status: "saving", message: "Capturing", warnings: [] })
     const settings = await getSettings()
-    const payload = buildPayload(root, decision)
+    const refreshedCandidate = await refreshCandidate()
+    const payload = buildPayload(root, decision, refreshedCandidate ?? getCandidate())
     if (!(await validateBeforeSave(payload))) {
       return
     }
@@ -125,7 +129,7 @@ export const createCaptureWorkflow = (
 
   const copyPayload = async (): Promise<void> => {
     const retryPayload = await loadRetryPayload()
-    const payload = retryPayload ?? buildPayload(root, currentDraftDecision)
+    const payload = retryPayload ?? buildPayload(root, currentDraftDecision, getCandidate())
     await copyText(JSON.stringify(payload, null, 2))
     setState(root, {
       status: "ready",
@@ -135,7 +139,7 @@ export const createCaptureWorkflow = (
   }
 
   const saveDraftAction = async (): Promise<void> => {
-    const payload = buildPayload(root, currentDraftDecision)
+    const payload = buildPayload(root, currentDraftDecision, getCandidate())
     await saveDraft(root)
     setState(root, {
       status: "ready",

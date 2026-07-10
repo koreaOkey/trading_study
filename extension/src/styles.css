@@ -1,4 +1,5 @@
-:root {
+:root,
+.fj-root {
   --fj-panel: rgba(15, 16, 17, 0.94);
   --fj-border: rgba(247, 248, 248, 0.14);
   --fj-text: #f7f8f8;
@@ -23,6 +24,7 @@
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   letter-spacing: 0;
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 .fj-dock {
@@ -31,6 +33,8 @@
   gap: 10px;
   align-items: center;
   padding: 14px;
+  cursor: grab;
+  touch-action: none;
 }
 
 .fj-primary {
@@ -54,6 +58,7 @@
 .fj-sheet {
   display: none;
   border-top: 1px solid var(--fj-border);
+  min-height: 0;
 }
 
 .fj-root.fj-sheet-open {
@@ -62,7 +67,7 @@
   bottom: auto;
   width: min(448px, calc(100vw - 32px));
   max-height: 80vh;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .fj-root.fj-sheet-open .fj-dock {
@@ -70,7 +75,15 @@
 }
 
 .fj-root.fj-sheet-open .fj-sheet {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(80vh - 2px);
+}
+
+.fj-sheet-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .fj-header {
@@ -79,6 +92,20 @@
   justify-content: space-between;
   gap: 12px;
   padding: 14px 14px 10px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.fj-root.fj-dragging,
+.fj-root.fj-dragging .fj-dock,
+.fj-root.fj-dragging .fj-header {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.fj-dock button,
+.fj-header button {
+  cursor: pointer;
 }
 
 .fj-kicker {
@@ -160,8 +187,20 @@
 }
 
 .fj-readonly {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   color: var(--fj-text);
   font: 12px/1.35 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.fj-candidate-segment {
+  white-space: nowrap;
+}
+
+.fj-candidate-segment + .fj-candidate-segment::before {
+  margin-right: 8px;
+  content: "·";
 }
 
 .fj-confirmed {
@@ -248,7 +287,16 @@
     max-height: 92vh;
   }
 
+  .fj-root.fj-sheet-open .fj-sheet {
+    max-height: calc(92vh - 2px);
+  }
+
   .fj-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fj-candidate-segment:nth-child(3)::before {
+    margin-right: 0;
+    content: none;
   }
 }

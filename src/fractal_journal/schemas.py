@@ -1,11 +1,16 @@
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import ClassVar, NewType
+from typing import ClassVar, Final, NewType, Self
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from pydantic_core import PydanticCustomError
 
 CaptureId = NewType("CaptureId", str)
 MAX_SCREENSHOT_DATA_URL_LENGTH = 14_000_000
+INVALID_DECISION_TIME_CODE: Final = "decision_time_exchange"
+INVALID_DECISION_TIME_MESSAGE: Final = "decision time must be an ISO timestamp"
+MISSING_DECISION_TIME_TZ_CODE: Final = "decision_time_exchange_timezone"
+MISSING_DECISION_TIME_TZ_MESSAGE: Final = "decision time must include a timezone offset"
 
 
 class Decision(StrEnum):
@@ -42,6 +47,8 @@ class ExtractedMetadata(BaseModel):
     page_title: str = Field(min_length=1, max_length=240)
     symbol_candidate: str = Field(default="", max_length=32)
     timeframe_candidate: str = Field(default="", max_length=16)
+    decision_time_candidate: str = Field(default="", max_length=40)
+    replay_active: bool = False
     captured_at: datetime
 
 
@@ -53,7 +60,6 @@ class ConfirmedMetadata(BaseModel):
     provider_symbol: str = Field(default="", max_length=32)
     market_div_code: str = Field(default="J", max_length=8)
     timeframe: str = Field(min_length=1, max_length=16)
-    trade_date: str = Field(min_length=4, max_length=20)
     decision_time_exchange: str = Field(default="", max_length=40)
     exchange_tz: str = Field(default="Asia/Seoul", max_length=64)
     price_basis: str = Field(default="unknown_unadjusted_assumed", max_length=40)
@@ -76,6 +82,23 @@ class CaptureCreate(BaseModel):
     decision: Decision
     notes: str = Field(default="", max_length=2000)
     warnings: tuple[WarningCode, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="after")
+    def validate_decision_time_exchange(self) -> Self:
+        value = self.confirmed.decision_time_exchange
+        try:
+            decision_time = datetime.fromisoformat(value)
+        except ValueError as exc:
+            raise PydanticCustomError(
+                INVALID_DECISION_TIME_CODE,
+                INVALID_DECISION_TIME_MESSAGE,
+            ) from exc
+        if decision_time.tzinfo is None or decision_time.utcoffset() is None:
+            raise PydanticCustomError(
+                MISSING_DECISION_TIME_TZ_CODE,
+                MISSING_DECISION_TIME_TZ_MESSAGE,
+            )
+        return self
 
 
 class CaptureRecord(BaseModel):

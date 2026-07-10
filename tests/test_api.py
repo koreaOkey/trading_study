@@ -30,6 +30,8 @@ class ExtractedJson(TypedDict):
     page_title: str
     symbol_candidate: str
     timeframe_candidate: str
+    decision_time_candidate: str
+    replay_active: bool
     captured_at: str
 
 
@@ -39,7 +41,6 @@ class ConfirmedJson(TypedDict):
     provider_symbol: str
     market_div_code: str
     timeframe: str
-    trade_date: str
     decision_time_exchange: str
     exchange_tz: str
     price_basis: str
@@ -189,6 +190,28 @@ def test_invalid_screenshot_rejected(tmp_path: Path) -> None:
         assert response.status_code == 422
 
 
+def test_capture_rejects_decision_time_without_timezone(tmp_path: Path) -> None:
+    token = tmp_path.name
+    payload = _payload()
+    payload["confirmed"]["decision_time_exchange"] = "2026-07-09T10:00:00"
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            screenshot_dir=tmp_path / "screenshots",
+            api_token=token,
+        ),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/captures",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 422
+
+
 def _payload() -> JsonMap:
     screenshot = b64encode(PNG_1X1).decode("ascii")
     captured_at = datetime(2026, 7, 9, 10, 0, tzinfo=UTC).isoformat()
@@ -199,6 +222,8 @@ def _payload() -> JsonMap:
             "page_title": "005930 1 Samsung Electronics",
             "symbol_candidate": "005930",
             "timeframe_candidate": "1D",
+            "decision_time_candidate": "2026-07-09T10:00:00+09:00",
+            "replay_active": True,
             "captured_at": captured_at,
         },
         "confirmed": {
@@ -207,7 +232,6 @@ def _payload() -> JsonMap:
             "provider_symbol": "005930",
             "market_div_code": "J",
             "timeframe": "1D",
-            "trade_date": "2026-07-09",
             "decision_time_exchange": "2026-07-09T10:00:00+09:00",
             "exchange_tz": "Asia/Seoul",
             "price_basis": "unknown_unadjusted_assumed",

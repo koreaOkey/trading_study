@@ -8,6 +8,8 @@ const draftPayload = {
     page_title: "005930 1 Samsung Electronics",
     symbol_candidate: "005930",
     timeframe_candidate: "1D",
+    decision_time_candidate: "2026-07-09T10:00:00+09:00",
+    replay_active: true,
     captured_at: "2026-07-09T01:00:00.000Z",
   },
   confirmed: {
@@ -16,7 +18,6 @@ const draftPayload = {
     provider_symbol: "005930",
     market_div_code: "J",
     timeframe: "1D",
-    trade_date: "2026-07-09",
     decision_time_exchange: "2026-07-09T10:00:00+09:00",
     exchange_tz: "Asia/Seoul",
     price_basis: "unknown_unadjusted_assumed",
@@ -61,5 +62,33 @@ describe("capture payload schemas", () => {
 
     // Then
     expect(parsed).toEqual(response)
+  })
+
+  test("uses decision time without a separate trade date", () => {
+    // Given
+    const payloadWithoutTradeDate = fullPayload
+
+    // When
+    const parsed = capturePayloadSchema.safeParse(payloadWithoutTradeDate)
+
+    // Then
+    expect(parsed.success).toBe(true)
+  })
+
+  test("rejects decision time without an exchange offset", () => {
+    // Given
+    const payloadWithNaiveTime = {
+      ...fullPayload,
+      confirmed: {
+        ...fullPayload.confirmed,
+        decision_time_exchange: "2026-07-09T10:00:00",
+      },
+    }
+
+    // When
+    const parsed = capturePayloadSchema.safeParse(payloadWithNaiveTime)
+
+    // Then
+    expect(parsed.success).toBe(false)
   })
 })

@@ -17,7 +17,6 @@ const draftPayload: CaptureDraftPayload = {
     provider_symbol: "005930",
     market_div_code: "J",
     timeframe: "1D",
-    trade_date: "2026-07-09",
     decision_time_exchange: "2026-07-09T10:00:00+09:00",
     exchange_tz: "Asia/Seoul",
     price_basis: "unknown_unadjusted_assumed",

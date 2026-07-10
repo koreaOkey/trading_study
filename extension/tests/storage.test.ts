@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, test } from "bun:test"
 
-import { getSettings, loadApiToken, saveApiToken } from "../src/storage"
+import {
+  getSettings,
+  loadApiToken,
+  manualOverrideValue,
+  parseConfirmedOverrides,
+  saveApiToken,
+} from "../src/storage"
 
 type Store = Record<string, string | undefined>
 
@@ -81,5 +87,47 @@ describe("api token storage", () => {
     // Then
     expect(syncStore.apiToken).toBeUndefined()
     expect(localStore.apiToken).toBe("new-local-token")
+  })
+})
+
+describe("confirmed draft overrides", () => {
+  test("stores only values changed from the current automatic candidate", () => {
+    // Given
+    const automaticSymbol = "214450"
+
+    // When
+    const unchanged = manualOverrideValue("214450", automaticSymbol)
+    const corrected = manualOverrideValue("214450-KIS", automaticSymbol)
+
+    // Then
+    expect(unchanged).toBeUndefined()
+    expect(corrected).toBe("214450-KIS")
+  })
+
+  test("stores a manual correction when automatic extraction is unavailable", () => {
+    // Given
+    const automaticSymbol = undefined
+
+    // When
+    const corrected = manualOverrideValue("005930", automaticSymbol)
+
+    // Then
+    expect(corrected).toBe("005930")
+  })
+
+  test("ignores stale legacy candidate fields while restoring explicit overrides", () => {
+    // Given
+    const legacyDraft = { symbol: "005930", timeframe: "1D" }
+    const currentDraft = {
+      confirmedOverrides: { symbol: "214450-KIS", decisionTime: "2026-07-09T11:30:00+09:00" },
+    }
+
+    // When
+    const legacyOverrides = parseConfirmedOverrides(legacyDraft)
+    const currentOverrides = parseConfirmedOverrides(currentDraft)
+
+    // Then
+    expect(legacyOverrides).toEqual({})
+    expect(currentOverrides).toEqual(currentDraft.confirmedOverrides)
   })
 })

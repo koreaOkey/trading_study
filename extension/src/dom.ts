@@ -27,6 +27,9 @@ export const getTextareaValue = (root: HTMLElement, name: string): string => {
   return textarea?.value.trim() ?? ""
 }
 
+export const autoFieldDatasetKey = (name: string): string =>
+  `auto${name[0]?.toUpperCase() ?? ""}${name.slice(1)}`
+
 export const setState = (root: HTMLElement, state: OverlayState): void => {
   const status = root.querySelector<HTMLElement>("[data-status]")
   if (status !== null) {
@@ -40,4 +43,3 @@ export const setState = (root: HTMLElement, state: OverlayState): void => {
     )
   }
 }
-

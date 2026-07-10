@@ -29,9 +29,43 @@ const requireLoopback = (apiBaseUrl: string): void => {
   }
 }
 
-const captureVisibleTab = async (): Promise<string> => {
+const isTradingViewUrl = (rawUrl: string | undefined): boolean => {
+  if (rawUrl === undefined) {
+    return false
+  }
+  try {
+    const url = new URL(rawUrl)
+    return url.protocol === "https:" && (
+      url.hostname === "tradingview.com" || url.hostname.endsWith(".tradingview.com")
+    )
+  } catch (error) {
+    if (error instanceof TypeError) {
+      return false
+    }
+    throw error
+  }
+}
+
+const requireActiveTradingViewSender = async (sender: chrome.runtime.MessageSender): Promise<number> => {
+  const tab = sender.tab
+  if (
+    tab?.id === undefined ||
+    tab.windowId === undefined ||
+    (sender.frameId !== undefined && sender.frameId !== 0) ||
+    !isTradingViewUrl(sender.url ?? tab.url)
+  ) {
+    throw new Error("capture_sender_must_be_top_level_tradingview_tab")
+  }
+  const activeTabs = await chrome.tabs.query({ active: true, windowId: tab.windowId })
+  if (activeTabs.length !== 1 || activeTabs[0]?.id !== tab.id) {
+    throw new Error("capture_sender_tab_is_not_active")
+  }
+  return tab.windowId
+}
+
+const captureVisibleTab = async (windowId: number): Promise<string> => {
   return new Promise((resolve, reject) => {
-    chrome.tabs.captureVisibleTab({ format: "png" }, (dataUrl) => {
+    chrome.tabs.captureVisibleTab(windowId, { format: "png" }, (dataUrl) => {
       const runtimeError = chrome.runtime.lastError
       if (runtimeError?.message !== undefined) {
         reject(new Error(runtimeError.message))
@@ -89,9 +123,10 @@ const saveCapture = async (
   payload: Omit<CapturePayload, "screenshot_data_url">,
   apiBaseUrl: string,
   apiToken: string,
+  windowId: number,
 ): Promise<SaveCaptureMessageResponse> => {
   requireLoopback(apiBaseUrl)
-  const screenshotDataUrl = await captureVisibleTab()
+  const screenshotDataUrl = await captureVisibleTab(windowId)
   const capturePayload = attachScreenshot(payload, screenshotDataUrl)
   try {
     return await postCapture(capturePayload, apiBaseUrl, apiToken)
@@ -123,7 +158,7 @@ const assertNever = (value: never): never => {
   throw new Error(`Unhandled message kind: ${String(value)}`)
 }
 
-chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
   const parsed = extensionMessageSchema.safeParse(message)
   if (!parsed.success) {
     return false
@@ -136,7 +171,14 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
           sendResponse(await checkHealth(settings.apiBaseUrl))
           return
         case "save-capture":
-          sendResponse(await saveCapture(parsed.data.payload, settings.apiBaseUrl, settings.apiToken))
+          sendResponse(
+            await saveCapture(
+              parsed.data.payload,
+              settings.apiBaseUrl,
+              settings.apiToken,
+              await requireActiveTradingViewSender(sender),
+            ),
+          )
           return
         case "retry-capture":
           sendResponse(await retryCapture(parsed.data.payload, settings.apiBaseUrl, settings.apiToken))
