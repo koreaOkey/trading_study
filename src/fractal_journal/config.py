@@ -35,6 +35,31 @@ class Settings(BaseSettings):
         ),
     )
     kis_env_path: Path = Field(default=Path("/home/lee/trading-ta-knowledge/.env"))
+    hermes_python_path: Path = Field(
+        default=Path("/home/lee/hermes-agent/venv/bin/python3"),
+        validation_alias="TRFJ_HERMES_PYTHON_PATH",
+    )
+    hermes_worker_path: Path = Field(
+        default=Path("/home/lee/tradingview-fractal-replay-journal")
+        / "src/fractal_journal/hermes_worker.py",
+        validation_alias="TRFJ_HERMES_WORKER_PATH",
+    )
+    hermes_home: Path = Field(
+        default=Path("/home/lee/.hermes/profiles/trading"),
+        validation_alias="TRFJ_HERMES_HOME",
+    )
+    hermes_timeout_seconds: float = Field(
+        default=180.0,
+        ge=1.0,
+        le=1800.0,
+        validation_alias="TRFJ_HERMES_TIMEOUT_SECONDS",
+    )
+    hermes_output_max_bytes: int = Field(
+        default=64_000,
+        ge=1_024,
+        le=1_000_000,
+        validation_alias="TRFJ_HERMES_OUTPUT_MAX_BYTES",
+    )
     database_url: str = Field(
         default="local-jsonl",
         validation_alias=AliasChoices("TRFJ_DATABASE_URL", "FJ_DATABASE_URL"),

@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="./src/actions.css" />
     <style>
       body {
-        min-height: 100vh;
+        min-height: 100dvh;
         margin: 0;
         background:
           linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
@@ -23,58 +23,158 @@
         height: 52%;
         border-bottom: 1px solid rgba(247, 248, 248, 0.12);
       }
+
+      .preview-states {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        z-index: 2147483647;
+        display: flex;
+        gap: 4px;
+        padding: 4px;
+        background: #0f1011;
+        border: 1px solid rgba(247, 248, 248, 0.14);
+        border-radius: 8px;
+        font: 12px/1.2 Inter, system-ui, sans-serif;
+      }
+
+      .preview-states button {
+        min-height: 32px;
+        padding: 0 10px;
+        color: #f7f8f8;
+        background: transparent;
+        border: 0;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+
+      .preview-states button[aria-pressed="true"] {
+        background: #7170ff;
+      }
     </style>
   </head>
   <body>
-    <div class="preview-chart-line"></div>
-    <section class="fj-root fj-sheet-open">
-      <div class="fj-dock">
-        <div>
-          <div class="fj-kicker">Fractal Replay</div>
-          <strong>Capture dock</strong>
-        </div>
+    <div class="preview-chart-line" aria-hidden="true"></div>
+    <nav class="preview-states" aria-label="Preview state">
+      <button type="button" data-preview-state="dock">Dock</button>
+      <button type="button" data-preview-state="open">Open</button>
+      <button type="button" data-preview-state="review">Review</button>
+    </nav>
+    <section class="fj-root" aria-label="Fractal replay decision journal">
+      <div class="fj-dock" data-drag-handle>
+        <div><div class="fj-kicker">Fractal Replay</div><strong>Decision journal</strong></div>
         <span class="fj-status" data-status="ready">Backend ready</span>
-        <button class="fj-primary">Capture decision</button>
-        <span class="fj-hotkey">⌘/Ctrl + Shift + J</span>
+        <button class="fj-primary" type="button">Open journal</button>
+        <span class="fj-hotkey">Ctrl/Cmd + Shift + J</span>
       </div>
       <div class="fj-sheet">
         <header class="fj-header">
-          <div>
-            <div class="fj-kicker">Fractal Replay</div>
-            <strong>Journal Capture</strong>
-          </div>
-          <button class="fj-icon">×</button>
+          <div><div class="fj-kicker">Fractal Replay</div><strong>Decision review</strong></div>
+          <button class="fj-icon" type="button" aria-label="Close">×</button>
         </header>
         <div class="fj-sheet-scroll">
-        <section class="fj-section">
-          <div class="fj-section-title">Extracted candidate - read only</div>
-          <div class="fj-readonly">005930 · 1D · replay 2026-07-09T10:32:00+09:00</div>
-        </section>
-        <section class="fj-section fj-confirmed">
-          <div class="fj-section-title">Confirmed for scoring - editable</div>
-          <div class="fj-grid">
-            <label>Symbol<input value="005930" /></label>
-            <label>Provider<input value="005930" /></label>
-            <label>TF<input value="1D" /></label>
-            <label class="fj-field-wide">Decision time<input value="2026-07-09T10:32:00+09:00" /></label>
-            <label>TZ<input value="Asia/Seoul" /></label>
-            <label class="fj-field-wide">Basis<input value="unknown_unadjusted_assumed" /></label>
-            <label>Session<input value="regular" /></label>
+          <section class="fj-section">
+            <div class="fj-section-title">Extracted candidate · read only</div>
+            <div class="fj-readonly">
+              <span class="fj-candidate-segment">214450</span>
+              <span class="fj-candidate-segment">5</span>
+              <span class="fj-candidate-segment">replay 2026-07-09T10:32:00+09:00</span>
+            </div>
+          </section>
+          <section class="fj-section fj-confirmed">
+            <div class="fj-section-title">Confirmed metadata · editable</div>
+            <div class="fj-grid">
+              <label>Symbol<input value="214450" /></label>
+              <label>KIS provider symbol<input value="214450" /></label>
+              <label>Time frame<input value="5" /></label>
+              <label class="fj-field-wide">Decision time<input value="2026-07-09T10:32:00+09:00" /></label>
+            </div>
+          </section>
+          <section class="fj-decision-context" aria-labelledby="preview-setup-title">
+            <div class="fj-context-row">
+              <div><div class="fj-section-title" id="preview-setup-title">Setup</div><strong>MA crossover</strong></div>
+              <span class="fj-indicators">SMA 50 · SMA 200 · VWMA 100</span>
+            </div>
+            <div class="fj-field-label" id="preview-hypothesis-label">Expected outcome</div>
+            <div class="fj-segments" role="group" aria-labelledby="preview-hypothesis-label">
+              <button type="button" data-selected="true" aria-pressed="true">Golden cross</button>
+              <button type="button" data-selected="false" aria-pressed="false">Dead cross</button>
+              <button type="button" data-selected="false" aria-pressed="false">Uncertain</button>
+            </div>
+            <label class="fj-note-label">Decision note
+              <textarea>SMA50·200 간격이 줄고 거래량이 늘었다.
+종가 교차를 확인한 뒤 판단한다.</textarea>
+            </label>
+            <div class="fj-draft-status" data-draft-state="saved">Draft saved automatically</div>
+          </section>
+          <div class="fj-warnings">
+            <span class="fj-warning">price_basis_unverified</span>
           </div>
-        </section>
-        <textarea>삼성전자 리플레이 후보 구간. 제공자 기준 확인 전 저장.</textarea>
-        <div class="fj-warnings">
-          <span class="fj-warning">provider_symbol_unconfirmed</span>
-          <span class="fj-warning">price_basis_unverified</span>
-        </div>
+          <section class="fj-review-section" data-preview-review hidden>
+            <div>
+              <h3 class="fj-review-title">Hermes decision review</h3>
+              <section class="fj-review-summary fj-review-block">
+                <h4 class="fj-review-heading">Overall assessment</h4>
+                <span class="fj-assessment">Needs more evidence</span>
+                <p class="fj-review-copy">교차 가능성은 있으나 거래량과 이평 기울기를 더 봐야 합니다.</p>
+              </section>
+              <section class="fj-review-block">
+                <h4 class="fj-review-heading">Sufficient evidence</h4>
+                <ul class="fj-review-list"><li>SMA50과 SMA200의 간격 축소를 확인했습니다.</li><li>VWMA100 대비 가격 위치를 기록했습니다.</li></ul>
+              </section>
+              <section class="fj-review-block">
+                <h4 class="fj-review-heading">Missing evidence</h4>
+                <ul class="fj-review-list"><li>SMA200 기울기와 거래량 흐름을 더 확인하세요.</li></ul>
+              </section>
+              <section class="fj-review-block">
+                <h4 class="fj-review-heading">Excessive / redundant evidence</h4>
+                <p class="fj-review-empty">None identified</p>
+              </section>
+              <section class="fj-review-block">
+                <h4 class="fj-review-heading">Contradictions</h4>
+                <p class="fj-review-empty">None identified</p>
+              </section>
+              <section class="fj-review-block">
+                <h4 class="fj-review-heading">Revised decision note</h4>
+                <p class="fj-review-copy">SMA50·200 간격은 줄지만 기울기와 거래량 확인 뒤 판단한다.</p>
+              </section>
+              <section class="fj-review-block fj-review-risk">
+                <h4 class="fj-review-heading">Risk note</h4>
+                <p class="fj-review-copy">교차 뒤에도 빠른 되돌림이 발생할 수 있습니다.</p>
+              </section>
+              <section class="fj-review-block">
+                <h4 class="fj-review-heading">Evidence summary</h4>
+                <ul class="fj-review-list">
+                  <li>KIS 214450 · 5분 · ready</li>
+                  <li>SMA 간격 축소 · VWMA100 위</li>
+                </ul>
+              </section>
+              <section class="fj-review-block">
+                <h4 class="fj-review-heading">Model metadata</h4>
+                <p class="fj-review-copy">trading · hermes · 2026-07-10T09:20:00Z</p>
+              </section>
+            </div>
+          </section>
         </div>
         <div class="fj-actions">
-          <button>Long</button>
-          <button>Short</button>
-          <button>Watch</button>
-          <button>Skip</button>
+          <button class="fj-submit" type="button" data-phase="idle">Submit for review</button>
         </div>
       </div>
     </section>
+    <script>
+      const overlay = document.querySelector(".fj-root")
+      const review = document.querySelector("[data-preview-review]")
+      const stateButtons = document.querySelectorAll("[data-preview-state]")
+      const setPreviewState = (state) => {
+        const open = state !== "dock"
+        overlay?.classList.toggle("fj-sheet-open", open)
+        if (review instanceof HTMLElement) review.hidden = state !== "review"
+        stateButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.getAttribute("data-preview-state") === state)))
+        history.replaceState(null, "", `?state=${state}`)
+      }
+      stateButtons.forEach((button) => button.addEventListener("click", () => setPreviewState(button.getAttribute("data-preview-state") ?? "open")))
+      const requestedState = new URLSearchParams(location.search).get("state")
+      setPreviewState(requestedState === "dock" || requestedState === "review" ? requestedState : "open")
+    </script>
   </body>
 </html>

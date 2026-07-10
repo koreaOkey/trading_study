@@ -1,13 +1,34 @@
 from datetime import UTC, datetime
-from typing import ClassVar
+from enum import StrEnum
+from typing import ClassVar, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
-from fractal_journal.schemas import CaptureRecord
+from fractal_journal.schemas import CaptureRecord, MaCrossoverEvidence
 from fractal_journal.scoring import ScoreResult
 
-BLOCKED_ACTION_TERMS = ("매수하세요", "매도하세요", "손절하세요", "진입하세요")
+BLOCKED_ACTION_TERMS = (
+    "매수하세요",
+    "매도하세요",
+    "손절하세요",
+    "진입하세요",
+    "buy now",
+    "sell now",
+    "enter now",
+    "go long",
+    "go short",
+    "purchase immediately",
+    "지금 사세요",
+    "매수를 권장합니다",
+)
 RISK_NOTE = (
     "기술적 분석은 확률적 시나리오 정리이며 수익 보장이나 "
     "개인화된 투자 지시가 아니다."
@@ -22,6 +43,94 @@ class ScoreBoundaryValidationError(ValueError):
 class RiskNoteValidationError(ValueError):
     def __init__(self) -> None:
         super().__init__("risk note required")
+
+
+class DecisionReviewStatus(StrEnum):
+    READY = "ready"
+    FAILED = "failed"
+
+
+class ReviewOverallAssessment(StrEnum):
+    INSUFFICIENT = "insufficient"
+    BALANCED = "balanced"
+    OVERCONFIRMED = "overconfirmed"
+    CONFLICTED = "conflicted"
+
+
+class DecisionReviewFailureCode(StrEnum):
+    EVIDENCE_UNAVAILABLE = "evidence_unavailable"
+    HERMES_UNAVAILABLE = "hermes_unavailable"
+    HERMES_TIMEOUT = "hermes_timeout"
+    INVALID_RESPONSE = "invalid_response"
+
+
+class DecisionReviewStateValidationError(ValueError):
+    def __init__(self) -> None:
+        super().__init__("decision review result status does not match its payload")
+
+
+class DecisionReview(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    schema_version: Literal["decision_review.v1"] = "decision_review.v1"
+    review_created_at_utc: AwareDatetime
+    review_model: str = Field(min_length=1, max_length=120)
+    review_profile: Literal["trading"] = "trading"
+    overall_assessment: ReviewOverallAssessment
+    summary: str = Field(min_length=1, max_length=2000)
+    sufficient_evidence: tuple[str, ...] = Field(default_factory=tuple)
+    missing_evidence: tuple[str, ...] = Field(default_factory=tuple)
+    excessive_evidence: tuple[str, ...] = Field(default_factory=tuple)
+    contradictions: tuple[str, ...] = Field(default_factory=tuple)
+    revised_decision_note: str = Field(default="", max_length=2000)
+    risk_note: str = Field(default=RISK_NOTE, min_length=1, max_length=2000)
+
+    @field_validator("review_created_at_utc")
+    @classmethod
+    def normalize_review_created_at_utc(
+        cls,
+        value: AwareDatetime,
+    ) -> AwareDatetime:
+        return value.astimezone(UTC)
+
+    @field_validator("risk_note")
+    @classmethod
+    def require_server_risk_note(cls, value: str) -> str:
+        if value != RISK_NOTE:
+            raise RiskNoteValidationError
+        return value
+
+
+class DecisionReviewFailure(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    code: DecisionReviewFailureCode
+    message: str = Field(min_length=1, max_length=500)
+    retryable: bool
+    review_model: str = Field(min_length=1, max_length=120)
+    review_profile: str = Field(min_length=1, max_length=120)
+
+
+class DecisionReviewResult(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    schema_version: Literal["decision_review_result.v1"] = "decision_review_result.v1"
+    capture_id: str = Field(min_length=1)
+    status: DecisionReviewStatus
+    evidence: MaCrossoverEvidence | None = None
+    review: DecisionReview | None = None
+    failure: DecisionReviewFailure | None = None
+
+    @model_validator(mode="after")
+    def validate_status_payload(self) -> "DecisionReviewResult":
+        ready_payload = self.review is not None and self.failure is None
+        failed_payload = self.review is None and self.failure is not None
+        valid = (
+            self.status is DecisionReviewStatus.READY and ready_payload
+        ) or (self.status is DecisionReviewStatus.FAILED and failed_payload)
+        if not valid:
+            raise DecisionReviewStateValidationError
+        return self
 
 
 class AIReviewResult(BaseModel):
@@ -64,8 +173,8 @@ def create_local_ai_review(
     if score.provider_window.warnings:
         process_tags.append("alignment-warning")
     failure_tags: list[str] = []
-    if not capture.notes:
-        failure_tags.append("invalidation-missing")
+    if not capture.effective_decision_note:
+        failure_tags.append("decision-note-missing")
     rating = "insufficient_data" if score.metric_null_reasons else "adequate"
     loop_reason = "provider/scoring warning review needed" if score.warnings else "none"
     return AIReviewResult(

@@ -61,6 +61,23 @@ export const reclampOverlay = (root: HTMLElement): void => {
   )
 }
 
+type ResizeObserverPort = {
+  readonly observe: (target: Element) => void
+}
+
+type ResizeObserverFactory = (callback: () => void) => ResizeObserverPort
+
+const defaultResizeObserverFactory: ResizeObserverFactory = (callback) =>
+  new ResizeObserver(() => callback())
+
+export const bindOverlayResizeReclamp = (
+  root: HTMLElement,
+  createObserver: ResizeObserverFactory = defaultResizeObserverFactory,
+): void => {
+  const observer = createObserver(() => reclampOverlay(root))
+  observer.observe(root)
+}
+
 const persistPosition = async (root: HTMLElement): Promise<void> => {
   const rect = root.getBoundingClientRect()
   await chrome.storage.local.set({ [POSITION_KEY]: { x: rect.left, y: rect.top } })
@@ -124,5 +141,6 @@ export const bindDraggableOverlay = async (root: HTMLElement): Promise<void> => 
   })
 
   window.addEventListener("resize", () => reclampOverlay(root))
+  bindOverlayResizeReclamp(root)
   await restorePosition(root)
 }

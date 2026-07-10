@@ -12,6 +12,16 @@ const timezoneAwareIsoSchema = z
 export const decisionValues = ["long", "short", "skip", "watch"] as const
 export type Decision = (typeof decisionValues)[number]
 
+export const setupValues = ["ma_crossover"] as const
+export type Setup = (typeof setupValues)[number]
+
+export const hypothesisValues = [
+  "golden_cross_expected",
+  "dead_cross_expected",
+  "uncertain",
+] as const
+export type Hypothesis = (typeof hypothesisValues)[number]
+
 export const warningValues = [
   "provider_symbol_unconfirmed",
   "price_basis_unverified",
@@ -50,58 +60,85 @@ export const extractedMetadataSchema = z.object({
 
 export type ConfirmedMetadata = {
   readonly symbol: string
-  readonly provider: string
   readonly provider_symbol: string
   readonly market_div_code: string
   readonly timeframe: string
   readonly decision_time_exchange: string
   readonly exchange_tz: string
-  readonly price_basis: string
-  readonly session_state: string
   readonly provider_status: ProviderStatus
-  readonly scenario: string
-  readonly confidence: number
-  readonly invalidation: string
+  readonly provider?: string
+  readonly price_basis?: string
+  readonly session_state?: string
+  readonly scenario?: string
+  readonly confidence?: number
+  readonly invalidation?: string
 }
 
 export const confirmedMetadataSchema = z.object({
   symbol: z.string().min(1).max(32),
-  provider: z.string().max(24),
   provider_symbol: z.string().max(32),
   market_div_code: z.string().max(8),
   timeframe: z.string().min(1).max(16),
   decision_time_exchange: timezoneAwareIsoSchema,
   exchange_tz: z.string().max(64),
-  price_basis: z.string().max(40),
-  session_state: z.string().max(32),
   provider_status: z.enum(providerStatusValues),
-  scenario: z.string().max(24),
-  confidence: z.number().int().min(1).max(5),
-  invalidation: z.string().max(400),
 })
 
-export type CapturePayload = {
-  readonly screenshot_data_url: string
+type CaptureDraftBase = {
   readonly extracted: ExtractedMetadata
   readonly confirmed: ConfirmedMetadata
-  readonly decision: Decision
-  readonly notes: string
   readonly warnings: readonly WarningCode[]
 }
 
-export type CaptureDraftPayload = Omit<CapturePayload, "screenshot_data_url">
+export type MaCrossoverCaptureDraftPayload = CaptureDraftBase & {
+  readonly setup: Setup
+  readonly hypothesis: Hypothesis
+  readonly decision_note: string
+}
 
-export const captureDraftPayloadSchema = z.object({
+export type LegacyCaptureDraftPayload = CaptureDraftBase & {
+  readonly decision: Decision
+  readonly notes?: string
+}
+
+export type CaptureDraftPayload = MaCrossoverCaptureDraftPayload | LegacyCaptureDraftPayload
+
+export type CapturePayload = CaptureDraftPayload & {
+  readonly screenshot_data_url: string
+}
+
+export type DistributiveOmit<Value, Keys extends PropertyKey> = Value extends unknown
+  ? Omit<Value, Keys>
+  : never
+
+const maCrossoverCaptureDraftPayloadSchema = z.object({
+  extracted: extractedMetadataSchema,
+  confirmed: confirmedMetadataSchema,
+  setup: z.enum(setupValues),
+  hypothesis: z.enum(hypothesisValues),
+  decision_note: z.string().max(2_000),
+  warnings: z.array(z.enum(warningValues)).max(warningValues.length),
+}).strict()
+
+const legacyCaptureDraftPayloadSchema = z.object({
   extracted: extractedMetadataSchema,
   confirmed: confirmedMetadataSchema,
   decision: z.enum(decisionValues),
-  notes: z.string().max(2_000),
+  notes: z.string().max(2_000).default(""),
   warnings: z.array(z.enum(warningValues)).max(warningValues.length),
-})
+}).strict()
 
-export const capturePayloadSchema = captureDraftPayloadSchema.extend({
-  screenshot_data_url: z.string().min(32).max(14_000_000),
-})
+export const captureDraftPayloadSchema = z.union([
+  maCrossoverCaptureDraftPayloadSchema,
+  legacyCaptureDraftPayloadSchema,
+])
+
+const screenshotDataUrlSchema = z.string().min(32).max(14_000_000)
+
+export const capturePayloadSchema = z.union([
+  maCrossoverCaptureDraftPayloadSchema.extend({ screenshot_data_url: screenshotDataUrlSchema }),
+  legacyCaptureDraftPayloadSchema.extend({ screenshot_data_url: screenshotDataUrlSchema }),
+])
 
 export const captureResponseSchema = z.object({
   capture: z.object({
@@ -119,59 +156,101 @@ export const captureResponseSchema = z.object({
 
 export type CaptureResponse = z.infer<typeof captureResponseSchema>
 
-export type CheckHealthMessage = {
-  readonly kind: "check-health"
-  readonly settings: ExtensionSettings
-}
+export const evidenceDataStatusValues = ["ready", "partial", "unavailable"] as const
+export const gapTrendValues = ["narrowing", "widening", "flat"] as const
+export const reviewOverallAssessmentValues = [
+  "insufficient",
+  "balanced",
+  "overconfirmed",
+  "conflicted",
+] as const
+export const decisionReviewFailureCodeValues = [
+  "evidence_unavailable",
+  "hermes_unavailable",
+  "hermes_timeout",
+  "invalid_response",
+] as const
+export const decisionReviewProfile = "trading" as const
+export const decisionReviewRiskNote =
+  "기술적 분석은 확률적 시나리오 정리이며 수익 보장이나 개인화된 투자 지시가 아니다." as const
 
-export type SaveCaptureMessage = {
-  readonly kind: "save-capture"
-  readonly settings: ExtensionSettings
-  readonly payload: CaptureDraftPayload
-}
+const nullableDecimalSchema = z.string().nullable()
 
-export type RetryCaptureMessage = {
-  readonly kind: "retry-capture"
-  readonly settings: ExtensionSettings
-  readonly payload: CapturePayload
-}
+export const indicatorMeasurementSchema = z.object({
+  value: nullableDecimalSchema,
+  previous_value: nullableDecimalSchema,
+  slope_pct: nullableDecimalSchema,
+  distance_from_close_pct: nullableDecimalSchema,
+  bars_used: z.number().int().nonnegative(),
+  null_reason: z.string().max(200).nullable(),
+})
 
-export type CaptureMessage = CheckHealthMessage | SaveCaptureMessage | RetryCaptureMessage
+export const maCrossoverEvidenceSchema = z.object({
+  schema_version: z.literal("ma_crossover_evidence.v1"),
+  provider: z.string().min(1).max(24),
+  provider_symbol: z.string().min(1).max(32),
+  timeframe: z.string().min(1).max(16),
+  decision_time_exchange: timezoneAwareIsoSchema,
+  data_status: z.enum(evidenceDataStatusValues),
+  bar_count: z.number().int().nonnegative(),
+  last_bar_time_exchange: timezoneAwareIsoSchema.nullable(),
+  close: nullableDecimalSchema,
+  volume: nullableDecimalSchema,
+  sma_50: indicatorMeasurementSchema,
+  sma_200: indicatorMeasurementSchema,
+  vwma_100: indicatorMeasurementSchema,
+  sma_50_to_sma_200_gap_pct: nullableDecimalSchema,
+  gap_trend: z.enum(gapTrendValues).nullable(),
+  null_reasons: z.array(z.string()),
+})
 
-export type HealthMessageResponse =
-  | { readonly ok: true; readonly status: number }
-  | { readonly ok: false; readonly error: string }
+export const decisionReviewSchema = z.object({
+  schema_version: z.literal("decision_review.v1"),
+  review_created_at_utc: z.string().datetime({ offset: true }),
+  review_model: z.string().min(1).max(120),
+  review_profile: z.literal(decisionReviewProfile),
+  overall_assessment: z.enum(reviewOverallAssessmentValues),
+  summary: z.string().min(1).max(2_000),
+  sufficient_evidence: z.array(z.string()),
+  missing_evidence: z.array(z.string()),
+  excessive_evidence: z.array(z.string()),
+  contradictions: z.array(z.string()),
+  revised_decision_note: z.string().max(2_000),
+  risk_note: z.literal(decisionReviewRiskNote),
+})
 
-export type SaveCaptureMessageResponse =
-  | { readonly ok: true; readonly id: string; readonly warnings: readonly WarningCode[] }
-  | { readonly ok: false; readonly error: string; readonly retry_payload?: CapturePayload | undefined }
+export const decisionReviewFailureSchema = z.object({
+  code: z.enum(decisionReviewFailureCodeValues),
+  message: z.string().min(1).max(500),
+  retryable: z.boolean(),
+  review_model: z.string().min(1).max(120),
+  review_profile: z.string().min(1).max(120),
+})
 
-export const healthMessageResponseSchema = z.discriminatedUnion("ok", [
-  z.object({ ok: z.literal(true), status: z.number() }),
-  z.object({ ok: z.literal(false), error: z.string() }),
-])
-
-export const saveCaptureMessageResponseSchema = z.discriminatedUnion("ok", [
-  z.object({ ok: z.literal(true), id: z.string(), warnings: z.array(z.enum(warningValues)) }),
-  z.object({ ok: z.literal(false), error: z.string(), retry_payload: capturePayloadSchema.optional() }),
-])
-
-export const extensionMessageSchema = z.discriminatedUnion("kind", [
+export const decisionReviewResultSchema = z.discriminatedUnion("status", [
   z.object({
-    kind: z.literal("check-health"),
-    settings: z.object({ apiBaseUrl: z.string(), apiToken: z.string() }),
+    schema_version: z.literal("decision_review_result.v1"),
+    capture_id: z.string().min(1),
+    status: z.literal("ready"),
+    evidence: maCrossoverEvidenceSchema.nullable(),
+    review: decisionReviewSchema,
+    failure: z.null(),
   }),
   z.object({
-    kind: z.literal("save-capture"),
-    settings: z.object({ apiBaseUrl: z.string(), apiToken: z.string() }),
-    payload: captureDraftPayloadSchema,
-  }),
-  z.object({
-    kind: z.literal("retry-capture"),
-    settings: z.object({ apiBaseUrl: z.string(), apiToken: z.string() }),
-    payload: capturePayloadSchema,
+    schema_version: z.literal("decision_review_result.v1"),
+    capture_id: z.string().min(1),
+    status: z.literal("failed"),
+    evidence: maCrossoverEvidenceSchema.nullable(),
+    review: z.null(),
+    failure: decisionReviewFailureSchema,
   }),
 ])
+
+export type IndicatorMeasurement = Readonly<z.infer<typeof indicatorMeasurementSchema>>
+export type MaCrossoverEvidence = Readonly<z.infer<typeof maCrossoverEvidenceSchema>>
+export type DecisionReview = Readonly<z.infer<typeof decisionReviewSchema>>
+export type DecisionReviewFailure = Readonly<z.infer<typeof decisionReviewFailureSchema>>
+export type DecisionReviewResult = Readonly<z.infer<typeof decisionReviewResultSchema>>
 
 export type ExtensionSettings = {
   readonly apiBaseUrl: string

@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test"
 
-import { attachScreenshot, failedCaptureResponse } from "../src/backgroundCapture"
+import {
+  attachScreenshot,
+  captureAndPost,
+  failedCaptureResponse,
+  REVIEW_HTTP_TIMEOUT,
+} from "../src/backgroundCapture"
 import type { CaptureDraftPayload } from "../src/types"
 
 const draftPayload: CaptureDraftPayload = {
@@ -32,6 +37,42 @@ const draftPayload: CaptureDraftPayload = {
 }
 
 describe("background capture payload handling", () => {
+  test("leaves review timeout ownership to the bounded backend pipeline", () => {
+    // Given
+    const backendOwnsComponentTimeouts = true
+
+    // When
+    const timeout = REVIEW_HTTP_TIMEOUT
+
+    // Then
+    expect(backendOwnsComponentTimeouts).toBe(true)
+    expect(timeout).toBe(false)
+  })
+
+  test("acknowledges the screenshot before posting to the backend", async () => {
+    // Given
+    const events: string[] = []
+
+    // When
+    const response = await captureAndPost(draftPayload, {
+      captureScreenshot: async () => {
+        events.push("screenshot")
+        return "data:image/png;base64,iVBORw0KGgo="
+      },
+      acknowledgeScreenshot: async () => {
+        events.push("acknowledgement")
+      },
+      postCapture: async () => {
+        events.push("post")
+        return { ok: true, id: "capture-1", warnings: [] }
+      },
+    })
+
+    // Then
+    expect(response.ok).toBe(true)
+    expect(events).toEqual(["screenshot", "acknowledgement", "post"])
+  })
+
   test("attaches the captured screenshot to retryable payloads", () => {
     // Given
     const screenshotDataUrl = "data:image/png;base64,iVBORw0KGgo="

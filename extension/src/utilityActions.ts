@@ -10,26 +10,21 @@ type UtilityActionRoot = {
 
 export type UtilityActionWorkflow = Pick<
   CaptureWorkflow,
-  "saveDraftAction" | "retry" | "copyPayload"
+  "submit" | "retryReview"
 >
 
 export const bindUtilityActionButtons = (
   root: UtilityActionRoot,
   workflow: UtilityActionWorkflow,
 ): void => {
-  root.querySelector("[data-save-draft]")?.addEventListener("click", (event) => {
+  root.querySelector("[data-submit-review]")?.addEventListener("click", (event) => {
     if (event.isTrusted) {
-      void workflow.saveDraftAction()
+      void workflow.submit()
     }
   })
-  root.querySelector("[data-retry-capture]")?.addEventListener("click", (event) => {
+  root.querySelector("[data-retry-review]")?.addEventListener("click", (event) => {
     if (event.isTrusted) {
-      void workflow.retry()
-    }
-  })
-  root.querySelector("[data-copy-payload]")?.addEventListener("click", (event) => {
-    if (event.isTrusted) {
-      void workflow.copyPayload()
+      void workflow.retryReview()
     }
   })
 }

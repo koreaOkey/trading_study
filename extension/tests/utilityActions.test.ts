@@ -17,18 +17,15 @@ class FakeButton {
 }
 
 class FakeRoot {
-  readonly saveDraft = new FakeButton()
-  readonly retry = new FakeButton()
-  readonly copyPayload = new FakeButton()
+  readonly submitReview = new FakeButton()
+  readonly retryReview = new FakeButton()
 
   querySelector(selector: string): FakeButton | null {
     switch (selector) {
-      case "[data-save-draft]":
-        return this.saveDraft
-      case "[data-retry-capture]":
-        return this.retry
-      case "[data-copy-payload]":
-        return this.copyPayload
+      case "[data-submit-review]":
+        return this.submitReview
+      case "[data-retry-review]":
+        return this.retryReview
       default:
         return null
     }
@@ -36,30 +33,26 @@ class FakeRoot {
 }
 
 describe("utility action buttons", () => {
-  test("dispatches each utility button to the matching workflow action", () => {
+  test("dispatches the submit and capture-id retry buttons", () => {
     // Given
     const calls: string[] = []
     const root = new FakeRoot()
     const workflow: UtilityActionWorkflow = {
-      saveDraftAction: async () => {
-        calls.push("save-draft")
+      submit: async () => {
+        calls.push("submit")
       },
-      retry: async () => {
-        calls.push("retry")
-      },
-      copyPayload: async () => {
-        calls.push("copy-payload")
+      retryReview: async () => {
+        calls.push("retry-review")
       },
     }
 
     // When
     bindUtilityActionButtons(root, workflow)
-    root.saveDraft.click(true)
-    root.retry.click(true)
-    root.copyPayload.click(true)
+    root.submitReview.click(true)
+    root.retryReview.click(true)
 
     // Then
-    expect(calls).toEqual(["save-draft", "retry", "copy-payload"])
+    expect(calls).toEqual(["submit", "retry-review"])
   })
 
   test("ignores synthetic utility clicks from the host page", () => {
@@ -67,16 +60,14 @@ describe("utility action buttons", () => {
     const calls: string[] = []
     const root = new FakeRoot()
     const workflow: UtilityActionWorkflow = {
-      saveDraftAction: async () => { calls.push("save-draft") },
-      retry: async () => { calls.push("retry") },
-      copyPayload: async () => { calls.push("copy-payload") },
+      submit: async () => { calls.push("submit") },
+      retryReview: async () => { calls.push("retry-review") },
     }
 
     // When
     bindUtilityActionButtons(root, workflow)
-    root.saveDraft.click(false)
-    root.retry.click(false)
-    root.copyPayload.click(false)
+    root.submitReview.click(false)
+    root.retryReview.click(false)
 
     // Then
     expect(calls).toEqual([])

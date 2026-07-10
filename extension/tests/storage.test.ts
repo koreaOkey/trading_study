@@ -5,6 +5,7 @@ import {
   loadApiToken,
   manualOverrideValue,
   parseConfirmedOverrides,
+  parseStoredCaptureDraft,
   saveApiToken,
 } from "../src/storage"
 
@@ -129,5 +130,37 @@ describe("confirmed draft overrides", () => {
     // Then
     expect(legacyOverrides).toEqual({})
     expect(currentOverrides).toEqual(currentDraft.confirmedOverrides)
+  })
+
+  test("migrates a stale legacy note without inventing a crossover hypothesis", () => {
+    // Given
+    const legacyDraft = {
+      confirmedOverrides: { symbol: "005930" },
+      decision: "long",
+      notes: "SMA50이 SMA200에 접근 중",
+      invalidation: "레거시 무효화 메모",
+    }
+
+    // When
+    const migrated = parseStoredCaptureDraft(legacyDraft)
+
+    // Then
+    expect(migrated).toEqual({
+      confirmedOverrides: { symbol: "005930" },
+      setup: "ma_crossover",
+      hypothesis: "uncertain",
+      decisionNote: "SMA50이 SMA200에 접근 중",
+    })
+  })
+
+  test("falls back to uncertain when a stored hypothesis is malformed", () => {
+    // Given
+    const staleDraft = { hypothesis: "bullish_cross", decisionNote: "검토 필요" }
+
+    // When
+    const migrated = parseStoredCaptureDraft(staleDraft)
+
+    // Then
+    expect(migrated?.hypothesis).toBe("uncertain")
   })
 })

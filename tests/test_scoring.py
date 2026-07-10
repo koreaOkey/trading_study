@@ -71,7 +71,21 @@ def test_short_scoring_uses_directional_metric_signs() -> None:
     assert score.close_to_close_return_pct == expected.close_return
 
 
-def _capture(decision: Decision) -> CaptureRecord:
+def test_scoring_returns_neutral_metrics_without_directional_decision() -> None:
+    # Given
+    capture = _capture(None)
+    provider = InMemoryProvider(_window())
+
+    # When
+    score = score_capture(capture, provider)
+
+    # Then
+    assert score.max_favorable_excursion_pct is None
+    assert score.max_adverse_excursion_pct is None
+    assert score.close_to_close_return_pct is None
+
+
+def _capture(decision: Decision | None) -> CaptureRecord:
     captured_at = datetime(2026, 7, 9, 1, 0, tzinfo=UTC)
     return CaptureRecord(
         id=CaptureId("capture-1"),

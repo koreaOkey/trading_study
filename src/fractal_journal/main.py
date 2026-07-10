@@ -6,11 +6,13 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from fractal_journal.ai_review import AIReviewResult, create_local_ai_review
+from fractal_journal.ai_review import DecisionReviewResult
 from fractal_journal.config import Settings
+from fractal_journal.hermes_review import DecisionReviewer, create_hermes_reviewer
 from fractal_journal.kis_auth import load_credentials
 from fractal_journal.kis_provider import KisOhlcvProvider
 from fractal_journal.provider import FixtureOhlcvProvider, OhlcvProvider
+from fractal_journal.review_service import DecisionReviewService
 from fractal_journal.schemas import (
     CaptureCreate,
     CaptureDetailResponse,
@@ -34,9 +36,15 @@ class AppServices:
     settings: Settings
     store: FileCaptureStore
     provider: OhlcvProvider
+    review_service: DecisionReviewService
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    provider: OhlcvProvider | None = None,
+    reviewer: DecisionReviewer | None = None,
+) -> FastAPI:
     resolved_settings = settings or Settings()
     store = FileCaptureStore(
         resolved_settings.data_dir,
@@ -47,15 +55,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolved_settings.kis_app_key,
         resolved_settings.kis_app_secret,
     )
-    provider = (
+    resolved_provider = provider or (
         KisOhlcvProvider(credentials, resolved_settings.kis_token_cache_path)
         if credentials is not None
         else FixtureOhlcvProvider()
     )
+    resolved_reviewer = reviewer or create_hermes_reviewer(resolved_settings)
     services = AppServices(
         settings=resolved_settings,
         store=store,
-        provider=provider,
+        provider=resolved_provider,
+        review_service=DecisionReviewService(resolved_provider, resolved_reviewer),
     )
 
     @asynccontextmanager
@@ -143,10 +153,9 @@ def _register_capture_routes(app: FastAPI, services: AppServices) -> None:
         score_status = (
             "ready" if services.store.load_score(capture_id) is not None else "pending"
         )
+        stored_review = services.store.load_decision_review(capture_id)
         review_status = (
-            "ready"
-            if services.store.load_ai_review(capture_id) is not None
-            else "pending"
+            stored_review.status.value if stored_review is not None else "pending"
         )
         return CaptureDetailResponse(
             capture=capture,
@@ -185,25 +194,27 @@ def _register_score_routes(app: FastAPI, services: AppServices) -> None:
         return ErrorResponse(detail="score_pending")
 
     @app.post("/api/captures/{capture_id}/ai-review")
-    async def create_ai_review(
+    def create_ai_review(
         capture_id: str,
         _: Annotated[None, Depends(_check_write_auth(services))],
-    ) -> AIReviewResult:
+    ) -> DecisionReviewResult:
         try:
             capture = services.store.get_capture(capture_id)
         except CaptureNotFoundError as exc:
             raise _not_found(exc.capture_id) from exc
-        score = services.store.load_score(capture_id)
-        if score is None:
-            score = services.store.save_score(score_capture(capture, services.provider))
-        return services.store.save_ai_review(create_local_ai_review(capture, score))
+        review = services.review_service.review_capture(capture)
+        return services.store.save_decision_review(review)
 
     @app.get("/api/captures/{capture_id}/ai-review")
     async def get_ai_review(
         capture_id: str,
         _: Annotated[None, Depends(_check_auth(services))],
-    ) -> AIReviewResult | ErrorResponse:
-        review = services.store.load_ai_review(capture_id)
+    ) -> DecisionReviewResult | ErrorResponse:
+        try:
+            capture = services.store.get_capture(capture_id)
+        except CaptureNotFoundError as exc:
+            raise _not_found(exc.capture_id) from exc
+        review = services.store.load_decision_review(str(capture.id))
         if review is not None:
             return review
         return ErrorResponse(detail="ai_review_pending")

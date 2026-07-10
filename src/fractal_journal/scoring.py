@@ -68,7 +68,7 @@ def _null_reasons(window: MinuteWindowResult) -> tuple[str, ...]:
 
 
 def _excursions(
-    decision: Decision,
+    decision: Decision | None,
     window: MinuteWindowResult,
 ) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
     if len(window.bars) < MINIMUM_SCORE_BARS:
@@ -77,7 +77,7 @@ def _excursions(
     highs = tuple(bar.high for bar in window.bars[1:])
     lows = tuple(bar.low for bar in window.bars[1:])
     final_close = window.bars[-1].close
-    match decision:  # noqa: MATCH_OK
+    match decision:
         case Decision.SHORT:
             mfe = _pct(entry, min(lows))
             mae = _pct(entry, max(highs))
@@ -89,7 +89,7 @@ def _excursions(
                 _pct(entry, min(lows)),
                 _pct(entry, final_close),
             )
-        case Decision.SKIP | Decision.WATCH:
+        case Decision.SKIP | Decision.WATCH | None:
             return None, None, None
 
 

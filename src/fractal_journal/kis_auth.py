@@ -11,6 +11,8 @@ AppKey = NewType("AppKey", str)
 AppSecret = NewType("AppSecret", str)
 AccessToken = NewType("AccessToken", str)
 TOKEN_SAFETY_SECONDS = 300
+HTTP_REDIRECT_MIN = 300
+HTTP_REDIRECT_MAX = 400
 
 
 class KisCredentials(BaseModel):
@@ -79,7 +81,7 @@ def create_kis_client(base_url: str) -> httpx2.Client:
         base_url=base_url,
         transport=transport,
         timeout=timeout,
-        follow_redirects=True,
+        follow_redirects=False,
     )
 
 
@@ -87,12 +89,15 @@ def get_access_token(
     client: httpx2.Client,
     credentials: KisCredentials,
     cache_path: Path,
+    *,
+    force_refresh: bool = False,
 ) -> AccessToken:
-    cache = _load_token_cache(cache_path)
-    if cache is not None:
-        cache_is_fresh = cache.expires_at_epoch - time.time() > TOKEN_SAFETY_SECONDS
-        if cache_is_fresh:
-            return cache.access_token
+    if not force_refresh:
+        cache = _load_token_cache(cache_path)
+        if cache is not None:
+            cache_is_fresh = cache.expires_at_epoch - time.time() > TOKEN_SAFETY_SECONDS
+            if cache_is_fresh:
+                return cache.access_token
     response = client.post(
         "/oauth2/tokenP",
         json={
@@ -101,6 +106,8 @@ def get_access_token(
             "appsecret": credentials.app_secret,
         },
     )
+    if HTTP_REDIRECT_MIN <= response.status_code < HTTP_REDIRECT_MAX:
+        raise KisTokenIssueError
     parsed = KisTokenIssueResponse.model_validate(response.json())
     if parsed.access_token is None or parsed.expires_in is None:
         raise KisTokenIssueError
@@ -112,6 +119,10 @@ def get_access_token(
     _ = cache_path.write_text(cache.model_dump_json(), encoding="utf-8")
     cache_path.chmod(0o600)
     return cache.access_token
+
+
+def invalidate_token_cache(cache_path: Path) -> None:
+    cache_path.unlink(missing_ok=True)
 
 
 def _read_env(env_path: Path) -> dict[str, str]:

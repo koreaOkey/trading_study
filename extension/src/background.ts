@@ -1,12 +1,18 @@
 import ky from "ky"
 
-import { attachScreenshot, failedCaptureResponse } from "./backgroundCapture"
-import { captureResponseSchema, extensionMessageSchema } from "./types"
+import {
+  captureAndPost,
+  failedCaptureResponse,
+  REVIEW_HTTP_TIMEOUT,
+} from "./backgroundCapture"
+import { extensionMessageSchema } from "./messageProtocol"
 import type {
-  CapturePayload,
   HealthMessageResponse,
+  ReviewCaptureMessageResponse,
   SaveCaptureMessageResponse,
-} from "./types"
+} from "./messageProtocol"
+import { captureResponseSchema, decisionReviewResultSchema } from "./types"
+import type { CapturePayload, DistributiveOmit } from "./types"
 
 const isLoopbackUrl = (rawUrl: string): boolean => {
   try {
@@ -46,7 +52,14 @@ const isTradingViewUrl = (rawUrl: string | undefined): boolean => {
   }
 }
 
-const requireActiveTradingViewSender = async (sender: chrome.runtime.MessageSender): Promise<number> => {
+type CaptureSenderTarget = {
+  readonly tabId: number
+  readonly windowId: number
+}
+
+const requireActiveTradingViewSender = async (
+  sender: chrome.runtime.MessageSender,
+): Promise<CaptureSenderTarget> => {
   const tab = sender.tab
   if (
     tab?.id === undefined ||
@@ -60,7 +73,7 @@ const requireActiveTradingViewSender = async (sender: chrome.runtime.MessageSend
   if (activeTabs.length !== 1 || activeTabs[0]?.id !== tab.id) {
     throw new Error("capture_sender_tab_is_not_active")
   }
-  return tab.windowId
+  return { tabId: tab.id, windowId: tab.windowId }
 }
 
 const captureVisibleTab = async (windowId: number): Promise<string> => {
@@ -120,22 +133,20 @@ const postCapture = async (
 }
 
 const saveCapture = async (
-  payload: Omit<CapturePayload, "screenshot_data_url">,
+  payload: DistributiveOmit<CapturePayload, "screenshot_data_url">,
   apiBaseUrl: string,
   apiToken: string,
-  windowId: number,
+  target: CaptureSenderTarget,
+  captureRequestId: string,
 ): Promise<SaveCaptureMessageResponse> => {
   requireLoopback(apiBaseUrl)
-  const screenshotDataUrl = await captureVisibleTab(windowId)
-  const capturePayload = attachScreenshot(payload, screenshotDataUrl)
-  try {
-    return await postCapture(capturePayload, apiBaseUrl, apiToken)
-  } catch (error) {
-    if (error instanceof Error) {
-      return failedCaptureResponse(error, capturePayload)
-    }
-    throw error
-  }
+  return captureAndPost(payload, {
+    captureScreenshot: () => captureVisibleTab(target.windowId),
+    acknowledgeScreenshot: async () => {
+      await chrome.tabs.sendMessage(target.tabId, { kind: "screenshot-captured", captureRequestId })
+    },
+    postCapture: (capturePayload) => postCapture(capturePayload, apiBaseUrl, apiToken),
+  })
 }
 
 const retryCapture = async (
@@ -152,6 +163,22 @@ const retryCapture = async (
     }
     throw error
   }
+}
+
+const reviewCapture = async (
+  captureId: string,
+  apiBaseUrl: string,
+  apiToken: string,
+): Promise<ReviewCaptureMessageResponse> => {
+  requireLoopback(apiBaseUrl)
+  const rawResponse = await ky
+    .post(`${apiBaseUrl}/api/captures/${encodeURIComponent(captureId)}/ai-review`, {
+      headers: headersFor(apiToken),
+      retry: { limit: 0 },
+      timeout: REVIEW_HTTP_TIMEOUT,
+    })
+    .json<unknown>()
+  return { ok: true, result: decisionReviewResultSchema.parse(rawResponse) }
 }
 
 const assertNever = (value: never): never => {
@@ -177,11 +204,21 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
               settings.apiBaseUrl,
               settings.apiToken,
               await requireActiveTradingViewSender(sender),
+              parsed.data.captureRequestId,
             ),
           )
           return
         case "retry-capture":
           sendResponse(await retryCapture(parsed.data.payload, settings.apiBaseUrl, settings.apiToken))
+          return
+        case "review-capture":
+          sendResponse(
+            await reviewCapture(
+              parsed.data.captureId,
+              settings.apiBaseUrl,
+              settings.apiToken,
+            ),
+          )
           return
         default:
           assertNever(parsed.data)

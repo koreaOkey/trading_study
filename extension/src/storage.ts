@@ -1,10 +1,18 @@
 import { autoFieldDatasetKey, getInputValue, getTextareaValue } from "./dom"
-import type { ExtensionSettings } from "./types"
+import { hypothesisValues } from "./types"
+import type { ExtensionSettings, Hypothesis, Setup } from "./types"
 
 const API_TOKEN_KEY = "apiToken"
 const CONFIRMED_OVERRIDE_FIELDS = ["symbol", "providerSymbol", "timeframe", "decisionTime"] as const
 type ConfirmedOverrideField = (typeof CONFIRMED_OVERRIDE_FIELDS)[number]
 type ConfirmedOverrides = Partial<Record<ConfirmedOverrideField, string>>
+
+export type StoredCaptureDraft = {
+  readonly confirmedOverrides: ConfirmedOverrides
+  readonly setup: Setup
+  readonly hypothesis: Hypothesis
+  readonly decisionNote: string
+}
 
 export const manualOverrideValue = (
   value: string,
@@ -34,6 +42,28 @@ export const parseConfirmedOverrides = (draft: unknown): ConfirmedOverrides => {
     }
   }
   return overrides
+}
+
+export const parseStoredCaptureDraft = (draft: unknown): StoredCaptureDraft | null => {
+  if (typeof draft !== "object" || draft === null) {
+    return null
+  }
+  const candidateHypothesis = Reflect.get(draft, "hypothesis")
+  const hypothesis = hypothesisValues.find((value) => value === candidateHypothesis) ?? "uncertain"
+  const currentDecisionNote = Reflect.get(draft, "decisionNote")
+  const legacyNotes = Reflect.get(draft, "notes")
+  const decisionNote =
+    typeof currentDecisionNote === "string"
+      ? currentDecisionNote
+      : typeof legacyNotes === "string"
+        ? legacyNotes
+        : ""
+  return {
+    confirmedOverrides: parseConfirmedOverrides(draft),
+    setup: "ma_crossover",
+    hypothesis,
+    decisionNote,
+  }
 }
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
@@ -94,46 +124,32 @@ export const saveDraft = async (root: HTMLElement): Promise<void> => {
   }
   const draft = {
     confirmedOverrides,
-    marketDivCode: getInputValue(root, "marketDivCode"),
-    exchangeTz: getInputValue(root, "exchangeTz"),
-    priceBasis: getInputValue(root, "priceBasis"),
-    sessionState: getInputValue(root, "sessionState"),
-    invalidation: getInputValue(root, "invalidation"),
-    notes: getTextareaValue(root, "notes"),
+    setup: "ma_crossover",
+    hypothesis: getInputValue(root, "hypothesis"),
+    decisionNote: getTextareaValue(root, "decisionNote"),
   } as const
   await chrome.storage.local.set({ fractalReplayDraft: draft })
 }
 
 export const restoreDraft = async (root: HTMLElement): Promise<void> => {
   const stored = await chrome.storage.local.get(["fractalReplayDraft"])
-  const draft = stored["fractalReplayDraft"]
-  if (typeof draft !== "object" || draft === null) {
+  const draft = parseStoredCaptureDraft(stored["fractalReplayDraft"])
+  if (draft === null) {
     return
   }
-  const confirmedOverrides = parseConfirmedOverrides(draft)
   for (const field of CONFIRMED_OVERRIDE_FIELDS) {
     const input = root.querySelector<HTMLInputElement>(`[data-field="${field}"]`)
-    const value = confirmedOverrides[field]
+    const value = draft.confirmedOverrides[field]
     if (input !== null && value !== undefined) {
       input.value = value
     }
   }
-  for (const field of [
-    "marketDivCode",
-    "exchangeTz",
-    "priceBasis",
-    "sessionState",
-    "invalidation",
-  ] as const) {
-    const input = root.querySelector<HTMLInputElement>(`[data-field="${field}"]`)
-    const value = field in draft ? draft[field] : undefined
-    if (input !== null && typeof value === "string") {
-      input.value = value
-    }
+  const hypothesis = root.querySelector<HTMLInputElement>('[data-field="hypothesis"]')
+  if (hypothesis !== null) {
+    hypothesis.value = draft.hypothesis
   }
-  const notes = root.querySelector<HTMLTextAreaElement>('[data-field="notes"]')
-  const notesValue = "notes" in draft ? draft.notes : undefined
-  if (notes !== null && typeof notesValue === "string") {
-    notes.value = notesValue
+  const decisionNote = root.querySelector<HTMLTextAreaElement>('[data-field="decisionNote"]')
+  if (decisionNote !== null) {
+    decisionNote.value = draft.decisionNote
   }
 }

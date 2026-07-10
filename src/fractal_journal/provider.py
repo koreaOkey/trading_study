@@ -2,11 +2,12 @@ from base64 import b64encode
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from enum import StrEnum
 from hashlib import sha256
 from typing import ClassVar, Protocol
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from fractal_journal.schemas import WarningCode
 
@@ -53,8 +54,88 @@ class MinuteWindowResult(BaseModel):
     warnings: tuple[WarningCode, ...]
 
 
+class HistoricalDataStatus(StrEnum):
+    OK = "ok"
+    PARTIAL_DATA = "partial_data"
+    EMPTY_DATA = "empty_data"
+    API_ERROR = "api_error"
+    RATE_LIMITED = "rate_limited"
+    UNSUPPORTED_TIMEFRAME = "unsupported_timeframe"
+    PROVIDER_UNAVAILABLE = "provider_unavailable"
+
+
+class HistoricalStopReason(StrEnum):
+    TARGET_REACHED = "target_reached"
+    PAGE_CAP_REACHED = "page_cap_reached"
+    NO_PROGRESS = "no_progress"
+    EMPTY_PAGE = "empty_page"
+    API_ERROR = "api_error"
+    RATE_LIMITED = "rate_limited"
+    UNSUPPORTED_TIMEFRAME = "unsupported_timeframe"
+    PROVIDER_UNAVAILABLE = "provider_unavailable"
+
+
+class NaiveDecisionTimeError(ValueError):
+    def __init__(self) -> None:
+        super().__init__("decision_time_exchange_requires_timezone")
+
+
+class HistoricalBarsRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    provider_symbol: str = Field(min_length=1, max_length=32)
+    market_div_code: str = "J"
+    decision_time_exchange: datetime
+    timeframe: str = Field(min_length=1, max_length=8)
+    target_bars: int = Field(default=201, ge=201, le=5000)
+    max_pages: int = Field(default=256, ge=1, le=1000)
+    price_basis_policy: str = "unknown_unadjusted_assumed"
+
+    @field_validator("decision_time_exchange")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise NaiveDecisionTimeError
+        return value
+
+
+class HistoricalProvenance(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    endpoint: str
+    tr_id: str
+    request_end_exchange: datetime
+    source_timeframe_minutes: int = 1
+    aggregated_timeframe_minutes: int | None
+    target_bars: int
+    page_count: int
+    raw_bar_count: int
+    unique_minute_bar_count: int
+    future_bars_filtered: int
+    price_basis: str
+    api_message_codes: tuple[str, ...]
+    last_cursor_exchange: datetime | None
+    raw_response_sha256: str
+    stop_reason: HistoricalStopReason
+
+
+class HistoricalBarsResult(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    provider: str
+    status: HistoricalDataStatus
+    bars: tuple[OhlcvBar, ...]
+    provenance: HistoricalProvenance
+
+
 class OhlcvProvider(Protocol):
     def fetch_minute_window(self, request: MinuteWindowRequest) -> MinuteWindowResult:
+        ...
+
+    def fetch_historical_bars(
+        self,
+        request: HistoricalBarsRequest,
+    ) -> HistoricalBarsResult:
         ...
 
 
@@ -87,6 +168,33 @@ class FixtureOhlcvProvider:
             raw_response_sha256=raw_hash,
             bars=bars,
             warnings=warnings,
+        )
+
+    def fetch_historical_bars(
+        self,
+        request: HistoricalBarsRequest,
+    ) -> HistoricalBarsResult:
+        empty_hash = sha256(b"").hexdigest()
+        return HistoricalBarsResult(
+            provider="fixture",
+            status=HistoricalDataStatus.PROVIDER_UNAVAILABLE,
+            bars=(),
+            provenance=HistoricalProvenance(
+                endpoint="fixture://kis/inquire-time-dailychartprice",
+                tr_id="FHKST03010230",
+                request_end_exchange=request.decision_time_exchange,
+                aggregated_timeframe_minutes=None,
+                target_bars=request.target_bars,
+                page_count=0,
+                raw_bar_count=0,
+                unique_minute_bar_count=0,
+                future_bars_filtered=0,
+                price_basis=request.price_basis_policy,
+                api_message_codes=(),
+                last_cursor_exchange=None,
+                raw_response_sha256=empty_hash,
+                stop_reason=HistoricalStopReason.PROVIDER_UNAVAILABLE,
+            ),
         )
 
     def _bar(self, exchange_time: datetime, offset: int) -> OhlcvBar:

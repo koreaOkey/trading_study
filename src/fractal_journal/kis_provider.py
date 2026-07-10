@@ -1,47 +1,51 @@
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from datetime import datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
-from typing import ClassVar
 from zoneinfo import ZoneInfo
 
 import httpx2
-from pydantic import BaseModel, ConfigDict
 
 from fractal_journal.kis_auth import (
     AccessToken,
     KisCredentials,
     create_kis_client,
     get_access_token,
+    invalidate_token_cache,
 )
-from fractal_journal.provider import MinuteWindowRequest, MinuteWindowResult, OhlcvBar
+from fractal_journal.kis_history import (
+    KisHistoryPageFetcher,
+    collect_historical_bars,
+    default_history_throttle,
+)
+from fractal_journal.kis_models import (
+    KisBar,
+    KisQuoteResponse,
+    parse_kis_quote_response,
+    to_ohlcv_bar,
+)
+from fractal_journal.provider import (
+    HistoricalBarsRequest,
+    HistoricalBarsResult,
+    MinuteWindowRequest,
+    MinuteWindowResult,
+    OhlcvBar,
+)
 from fractal_journal.schemas import WarningCode
+
+__all__ = [
+    "KisBar",
+    "KisHistoryPageFetcher",
+    "KisOhlcvProvider",
+    "KisQuoteResponse",
+    "collect_historical_bars",
+]
 
 SEOUL = ZoneInfo("Asia/Seoul")
 KIS_BASE_URL = "https://openapi.koreainvestment.com:9443"
 MINIMUM_COMPLETE_BARS = 30
-
-
-class KisBar(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
-
-    stck_bsop_date: str
-    stck_cntg_hour: str
-    stck_oprc: str | None = None
-    stck_hgpr: str | None = None
-    stck_lwpr: str | None = None
-    stck_prpr: str | None = None
-    cntg_vol: str | None = None
-
-
-class KisQuoteResponse(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
-
-    rt_cd: str
-    msg_cd: str
-    msg1: str
-    output2: tuple[KisBar, ...] = ()
+INVALID_ACCESS_TOKEN_MESSAGE_CODES = frozenset({"EGW00123"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +53,7 @@ class KisOhlcvProvider:
     credentials: KisCredentials
     token_cache_path: Path
     base_url: str = KIS_BASE_URL
+    history_throttle: Callable[[], None] = default_history_throttle
 
     def fetch_minute_window(self, request: MinuteWindowRequest) -> MinuteWindowResult:
         decision_time = datetime.fromisoformat(request.decision_time_exchange)
@@ -64,7 +69,76 @@ class KisOhlcvProvider:
                 request,
                 request_time,
             )
+            if _is_invalid_access_token(response):
+                invalidate_token_cache(self.token_cache_path)
+                token = get_access_token(
+                    client,
+                    self.credentials,
+                    self.token_cache_path,
+                    force_refresh=True,
+                )
+                response = _fetch_historical(
+                    client,
+                    token,
+                    self.credentials,
+                    request,
+                    request_time,
+                )
         return _to_window(request, request_time, response)
+
+    def fetch_historical_bars(
+        self,
+        request: HistoricalBarsRequest,
+    ) -> HistoricalBarsResult:
+        with create_kis_client(self.base_url) as client:
+            result = self._collect_historical_bars(client, request)
+            if not _history_has_invalid_access_token(result):
+                return result
+            invalidate_token_cache(self.token_cache_path)
+            return self._collect_historical_bars(
+                client,
+                request,
+                force_refresh=True,
+            )
+
+    def _collect_historical_bars(
+        self,
+        client: httpx2.Client,
+        request: HistoricalBarsRequest,
+        *,
+        force_refresh: bool = False,
+    ) -> HistoricalBarsResult:
+        token = get_access_token(
+            client,
+            self.credentials,
+            self.token_cache_path,
+            force_refresh=force_refresh,
+        )
+        fetch_page = KisHistoryPageFetcher(
+            client=client,
+            token=token,
+            credentials=self.credentials,
+            request=request,
+        )
+        return collect_historical_bars(
+            request,
+            fetch_page,
+            self.history_throttle,
+        )
+
+
+def _history_has_invalid_access_token(result: HistoricalBarsResult) -> bool:
+    return any(
+        code in INVALID_ACCESS_TOKEN_MESSAGE_CODES
+        for code in result.provenance.api_message_codes
+    )
+
+
+def _is_invalid_access_token(response: KisQuoteResponse) -> bool:
+    return (
+        response.rt_cd != "0"
+        and response.msg_cd in INVALID_ACCESS_TOKEN_MESSAGE_CODES
+    )
 
 
 def _fetch_historical(
@@ -92,7 +166,7 @@ def _fetch_historical(
             "FID_FAKE_TICK_INCU_YN": "",
         },
     )
-    return KisQuoteResponse.model_validate(response.json())
+    return parse_kis_quote_response(response)
 
 
 def _to_window(
@@ -102,7 +176,7 @@ def _to_window(
 ) -> MinuteWindowResult:
     bars = tuple(
         sorted(
-            (_to_bar(bar) for bar in response.output2),
+            (to_ohlcv_bar(bar) for bar in response.output2),
             key=lambda bar: bar.time_utc,
         ),
     )
@@ -118,25 +192,6 @@ def _to_window(
         bars=bars,
         warnings=_warnings(request_time, bars, response),
     )
-
-
-def _to_bar(bar: KisBar) -> OhlcvBar:
-    exchange_time = datetime.strptime(
-        f"{bar.stck_bsop_date}{bar.stck_cntg_hour}",
-        "%Y%m%d%H%M%S",
-    ).replace(tzinfo=SEOUL)
-    close = Decimal(bar.stck_prpr or "0")
-    return OhlcvBar(
-        time_utc=exchange_time.astimezone(UTC),
-        time_exchange=exchange_time.isoformat(),
-        open=Decimal(bar.stck_oprc or close),
-        high=Decimal(bar.stck_hgpr or close),
-        low=Decimal(bar.stck_lwpr or close),
-        close=close,
-        volume=int(bar.cntg_vol or "0"),
-    )
-
-
 def _warnings(
     request_time: datetime,
     bars: tuple[OhlcvBar, ...],

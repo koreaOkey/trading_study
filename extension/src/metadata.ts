@@ -2,8 +2,8 @@ import { getInputValue, getTextareaValue } from "./dom"
 import type {
   CaptureDraftPayload,
   ConfirmedMetadata,
-  Decision,
   ExtractedMetadata,
+  Hypothesis,
   WarningCode,
 } from "./types"
 
@@ -158,7 +158,6 @@ export const buildConfirmedMetadata = (root: HTMLElement): ConfirmedMetadata => 
     provider_status: "candidate",
     scenario: "wait",
     confidence: 3,
-    invalidation: getInputValue(root, "invalidation"),
   }
 }
 
@@ -190,15 +189,20 @@ const buildExtractedMetadata = (candidate: CandidateMetadata): ExtractedMetadata
 
 export const buildPayload = (
   root: HTMLElement,
-  decision: Decision,
   candidate: CandidateMetadata = fallbackCandidateMetadata(),
 ): CaptureDraftPayload => {
   const confirmed = buildConfirmedMetadata(root)
+  const rawHypothesis = getInputValue(root, "hypothesis")
+  const hypothesis: Hypothesis =
+    rawHypothesis === "golden_cross_expected" || rawHypothesis === "dead_cross_expected"
+      ? rawHypothesis
+      : "uncertain"
   return {
     extracted: buildExtractedMetadata(candidate),
     confirmed,
-    decision,
-    notes: getTextareaValue(root, "notes"),
+    setup: "ma_crossover",
+    hypothesis,
+    decision_note: getTextareaValue(root, "decisionNote"),
     warnings: collectWarnings(confirmed),
   }
 }
