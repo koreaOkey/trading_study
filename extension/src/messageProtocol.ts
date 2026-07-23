@@ -38,11 +38,28 @@ export type ReviewCaptureMessage = {
   readonly captureId: string
 }
 
+export type RegisterBarSeriesMessage = {
+  readonly kind: "register-bar-series"
+  readonly settings: ExtensionSettings
+  readonly symbol: string
+  readonly timeframe: string
+  readonly csvText: string
+}
+
+export type BarCoverageMessage = {
+  readonly kind: "get-bar-coverage"
+  readonly settings: ExtensionSettings
+  readonly symbol: string
+  readonly timeframe: string
+}
+
 export type CaptureMessage =
   | CheckHealthMessage
   | SaveCaptureMessage
   | RetryCaptureMessage
   | ReviewCaptureMessage
+  | RegisterBarSeriesMessage
+  | BarCoverageMessage
 
 export type HealthMessageResponse =
   | { readonly ok: true; readonly status: number }
@@ -71,6 +88,40 @@ export const reviewCaptureMessageResponseSchema = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(false), error: z.string() }),
 ])
 
+export const barSeriesCoverageSchema = z.object({
+  symbol: z.string(),
+  timeframe: z.string(),
+  bar_count: z.number().int().nonnegative(),
+  first_time_exchange: z.string(),
+  last_time_exchange: z.string(),
+})
+
+export type BarSeriesCoverage = z.infer<typeof barSeriesCoverageSchema>
+
+export const registerBarSeriesMessageResponseSchema = z.discriminatedUnion("ok", [
+  z.object({
+    ok: z.literal(true),
+    coverage: barSeriesCoverageSchema,
+    reviews: z.array(decisionReviewResultSchema),
+  }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+])
+
+export type RegisterBarSeriesMessageResponse = z.infer<
+  typeof registerBarSeriesMessageResponseSchema
+>
+
+export const barCoverageMessageResponseSchema = z.discriminatedUnion("ok", [
+  z.object({
+    ok: z.literal(true),
+    registered: z.boolean(),
+    coverage: barSeriesCoverageSchema.nullable(),
+  }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+])
+
+export type BarCoverageMessageResponse = z.infer<typeof barCoverageMessageResponseSchema>
+
 const settingsSchema = z.object({ apiBaseUrl: z.string(), apiToken: z.string() })
 
 export const extensionMessageSchema = z.discriminatedUnion("kind", [
@@ -90,5 +141,18 @@ export const extensionMessageSchema = z.discriminatedUnion("kind", [
     kind: z.literal("review-capture"),
     settings: settingsSchema,
     captureId: z.string().min(1).max(128),
+  }),
+  z.object({
+    kind: z.literal("register-bar-series"),
+    settings: settingsSchema,
+    symbol: z.string().min(1).max(32),
+    timeframe: z.string().min(1).max(16),
+    csvText: z.string().min(1).max(8_000_000),
+  }),
+  z.object({
+    kind: z.literal("get-bar-coverage"),
+    settings: settingsSchema,
+    symbol: z.string().min(1).max(32),
+    timeframe: z.string().min(1).max(16),
   }),
 ])

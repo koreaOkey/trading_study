@@ -1,10 +1,14 @@
 import {
+  barCoverageMessageResponseSchema,
   healthMessageResponseSchema,
+  registerBarSeriesMessageResponseSchema,
   reviewCaptureMessageResponseSchema,
   saveCaptureMessageResponseSchema,
 } from "./messageProtocol"
 import type {
+  BarCoverageMessageResponse,
   HealthMessageResponse,
+  RegisterBarSeriesMessageResponse,
   ReviewCaptureMessageResponse,
   SaveCaptureMessageResponse,
 } from "./messageProtocol"
@@ -47,5 +51,37 @@ export const reviewCapture = async (
 ): Promise<ReviewCaptureMessageResponse> => {
   return reviewCaptureMessageResponseSchema.parse(
     await chrome.runtime.sendMessage({ kind: "review-capture", settings, captureId }),
+  )
+}
+
+export const registerBarSeries = async (
+  settings: ExtensionSettings,
+  symbol: string,
+  timeframe: string,
+  csvText: string,
+): Promise<RegisterBarSeriesMessageResponse> => {
+  return registerBarSeriesMessageResponseSchema.parse(
+    await chrome.runtime.sendMessage({
+      kind: "register-bar-series",
+      settings,
+      symbol,
+      timeframe,
+      csvText,
+    }),
+  )
+}
+
+export const getBarCoverage = async (
+  settings: ExtensionSettings,
+  symbol: string,
+  timeframe: string,
+): Promise<BarCoverageMessageResponse> => {
+  return barCoverageMessageResponseSchema.parse(
+    await chrome.runtime.sendMessage({
+      kind: "get-bar-coverage",
+      settings,
+      symbol,
+      timeframe,
+    }),
   )
 }

@@ -66,6 +66,11 @@ const overlayMarkup = (): string => `
         </label>
         <div class="fj-draft-status" data-draft-status data-draft-state="ready" role="status" aria-live="polite">Autosave on</div>
       </section>
+      <section class="fj-csv-section">
+        <div class="fj-csv-status" data-csv-status data-csv-state="unknown" role="status" aria-live="polite">CSV coverage: checking…</div>
+        <button class="fj-register-csv" type="button" data-register-csv>Register session CSV</button>
+        <input type="file" accept=".csv,text/csv" data-csv-file hidden />
+      </section>
       <div class="fj-warnings" data-warnings aria-live="polite"></div>
       <section class="fj-review-section" data-review-section aria-live="polite" hidden>
         <div data-review></div>

@@ -166,23 +166,20 @@ describe("submit for review workflow", () => {
     expect(builtFrom).toEqual(freshCandidate)
   })
 
-  test("restores the overlay before starting the capture-id review", async () => {
+  test("saves without reviewing and defers the review to CSV registration", async () => {
     // Given
-    let hiddenAtReview = true
-    const harness = makeWorkflow({
-      reviewCapture: async () => {
-        hiddenAtReview = harness.root.classList.contains("fj-capture-hidden")
-        return { ok: true, result: readyReview }
-      },
-    })
+    const phases: string[] = []
+    const harness = makeWorkflow({ phases })
 
     // When
     await harness.workflow.submit()
 
-    // Then
-    expect(hiddenAtReview).toBe(false)
+    // Then: the capture is saved, no review runs, and the deferred flow is announced.
     expect(harness.captureCalls()).toBe(1)
-    expect(harness.reviewCalls()).toBe(1)
+    expect(harness.reviewCalls()).toBe(0)
+    expect(harness.workflow.lastCaptureId()).toBe("capture-1")
+    expect(harness.root.classList.contains("fj-capture-hidden")).toBe(false)
+    expect(phases.some((entry) => entry.includes("CSV registration"))).toBe(true)
   })
 
   test("ignores a second submit while capture is in flight", async () => {
@@ -218,7 +215,7 @@ describe("submit for review workflow", () => {
 
     // Then
     expect(harness.captureCalls()).toBe(1)
-    expect(harness.reviewCalls()).toBe(2)
+    expect(harness.reviewCalls()).toBe(1)
   })
 
   test("renders a structured Hermes timeout as a recoverable review result", async () => {
@@ -247,6 +244,7 @@ describe("submit for review workflow", () => {
 
     // When
     await harness.workflow.submit()
+    await harness.workflow.retryReview()
 
     // Then
     expect(rendered).toEqual(timeoutResult)

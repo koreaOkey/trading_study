@@ -1,4 +1,5 @@
 import { createCaptureWorkflow } from "./captureWorkflow"
+import { bindCsvRegistration } from "./csvRegistration"
 import { getInputValue, setState } from "./dom"
 import type { OverlayState } from "./dom"
 import { bindDraggableOverlay } from "./drag"
@@ -35,15 +36,18 @@ const mount = async (): Promise<void> => {
   const syncHypothesis = bindHypothesis(root, draft)
   const syncSubmitValidity = bindSubmitValidity(root)
   bindJournalChrome(root, workflow, draft)
+  const csvRegistration = bindCsvRegistration(root, workflow)
   document.documentElement.append(host)
   setState(root, initialState)
   await restoreDraft(root)
   syncHypothesis()
   candidate = applyCandidate(root, candidate)
   syncSubmitValidity()
+  void csvRegistration.refresh()
   bindTradingViewBridge((nextCandidate) => {
     candidate = applyCandidate(root, nextCandidate)
     syncSubmitValidity()
+    void csvRegistration.refresh()
   })
   await bindDraggableOverlay(root)
   if (getInputValue(root, "symbol").length === 0) openSheet(root)

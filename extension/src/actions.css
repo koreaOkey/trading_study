@@ -244,3 +244,46 @@
     text-align: left;
   }
 }
+
+.fj-csv-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--fj-surface-subtle);
+  border: 1px solid var(--fj-surface-divider);
+  border-radius: var(--fj-radius-control);
+}
+
+.fj-csv-status {
+  min-height: 14px;
+  color: var(--fj-muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.fj-csv-status[data-csv-state="covered"],
+.fj-csv-status[data-csv-state="not-needed"] {
+  color: var(--fj-ready);
+}
+
+.fj-csv-status[data-csv-state="needed"] {
+  color: var(--fj-warning);
+}
+
+.fj-register-csv {
+  width: 100%;
+  min-height: 30px;
+  color: var(--fj-text);
+  background: var(--fj-surface-control);
+  border: 1px solid var(--fj-control-border);
+  border-radius: var(--fj-radius-control);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.fj-register-csv:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

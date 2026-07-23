@@ -75,17 +75,27 @@ is kept in extension-local storage and clamped back into the viewport.
 
 There is one primary action: **Submit for review**.
 
-1. Start TradingView Bar Replay and move to the decision candle.
+1. Start TradingView Bar Replay and move to the decision candle. Do not study
+   the live (non-replay) chart first — the session CSV is exported *after* the
+   session precisely so the outcome cannot contaminate the judgment.
 2. Open the journal. Confirm Symbol, KIS provider symbol, Time frame, and Decision
    time. Select Golden cross, Dead cross, or Uncertain and write the Decision note.
 3. Press **Submit for review** or `Ctrl/Cmd+Enter` while the sheet is open.
 4. The extension refreshes TradingView metadata, captures the visible tab, and
-   persists the capture first.
-5. The backend pages backward through KIS data, calculates SMA 50, SMA 200,
-   VWMA 100, slopes, price distances, and the SMA gap trend.
-6. Hermes reviews the structured evidence and note. The sheet remains open and
-   renders the assessment, evidence lists, revised note, risk note, and evidence
-   summary.
+   persists the capture. The Hermes review is deferred until the session CSV is
+   registered (intraday timeframes) so it always runs on complete evidence.
+5. After the session ends, exit replay, use TradingView's **Export chart data**
+   (paid plans), and press **Register session CSV** in the journal sheet. The
+   backend stores the series under `bar_series/`, reviews every pending capture
+   for that symbol x timeframe using only bars at/before each decision time,
+   and the sheet renders the review for the latest capture.
+6. The CSV badge shows per chart whether a registered series already covers the
+   scoring window (`CSV registered ✓ export not needed`) — in that case the
+   register button is disabled and no new export is required. Daily (`1D`)
+   judgments never need a CSV; their evidence and scoring use KIS directly.
+7. Registered series also feed outcome scoring: trading-ta-knowledge's
+   `score_decisions.py` resolves `bar_series/{symbol}_{timeframe}.csv` for
+   journal-bridged intraday decisions automatically.
 
 Edits are automatically saved as a local draft. Closing the sheet saves the
 draft but does not submit it. There are no Long, Short, Watch, or Skip submission

@@ -25,6 +25,7 @@ export type CaptureWorkflow = {
   readonly retryReview: () => Promise<void>
   readonly acknowledgeScreenshot: (captureRequestId: string) => void
   readonly checkBackend: () => Promise<void>
+  readonly lastCaptureId: () => string | null
 }
 
 type CaptureWorkflowOptions = {
@@ -184,12 +185,12 @@ export const createCaptureWorkflow = (
       }
       captureId = response.id
       captureWarnings = response.warnings
+      dependencies.setPhase(root, "ready")
       dependencies.setState(root, {
         status: "saved",
-        message: `Saved ${response.id}`,
+        message: `Saved ${response.id} · review runs after session CSV registration`,
         warnings: response.warnings,
       })
-      await runReview(response.id, settings)
     } catch (error) {
       if (error instanceof Error) {
         fail(error.message, captureId !== null)
@@ -236,5 +237,11 @@ export const createCaptureWorkflow = (
     }
   }
 
-  return { submit, retryReview, acknowledgeScreenshot, checkBackend }
+  return {
+    submit,
+    retryReview,
+    acknowledgeScreenshot,
+    checkBackend,
+    lastCaptureId: () => captureId,
+  }
 }

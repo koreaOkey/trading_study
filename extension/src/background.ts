@@ -1,13 +1,16 @@
 import ky from "ky"
+import { z } from "zod"
 
 import {
   captureAndPost,
   failedCaptureResponse,
   REVIEW_HTTP_TIMEOUT,
 } from "./backgroundCapture"
-import { extensionMessageSchema } from "./messageProtocol"
+import { barSeriesCoverageSchema, extensionMessageSchema } from "./messageProtocol"
 import type {
+  BarCoverageMessageResponse,
   HealthMessageResponse,
+  RegisterBarSeriesMessageResponse,
   ReviewCaptureMessageResponse,
   SaveCaptureMessageResponse,
 } from "./messageProtocol"
@@ -167,6 +170,57 @@ const retryCapture = async (
   }
 }
 
+const registerBarSeriesResponseSchema = z.object({
+  coverage: barSeriesCoverageSchema,
+  reviews: z.array(decisionReviewResultSchema),
+})
+
+const barCoverageResponseSchema = z.object({
+  registered: z.boolean(),
+  coverage: barSeriesCoverageSchema.nullable(),
+})
+
+const registerBarSeries = async (
+  symbol: string,
+  timeframe: string,
+  csvText: string,
+  apiBaseUrl: string,
+  apiToken: string,
+): Promise<RegisterBarSeriesMessageResponse> => {
+  requireLoopback(apiBaseUrl)
+  const rawResponse = await ky
+    .post(`${apiBaseUrl}/api/bar-series`, {
+      headers: headersFor(apiToken),
+      json: { symbol, timeframe, csv_text: csvText },
+      retry: { limit: 0 },
+      // Registration triggers deferred Hermes reviews server-side; a session
+      // with several judgments can legitimately take minutes.
+      timeout: REVIEW_HTTP_TIMEOUT,
+    })
+    .json<unknown>()
+  const parsed = registerBarSeriesResponseSchema.parse(rawResponse)
+  return { ok: true, coverage: parsed.coverage, reviews: parsed.reviews }
+}
+
+const getBarCoverage = async (
+  symbol: string,
+  timeframe: string,
+  apiBaseUrl: string,
+  apiToken: string,
+): Promise<BarCoverageMessageResponse> => {
+  requireLoopback(apiBaseUrl)
+  const rawResponse = await ky
+    .get(`${apiBaseUrl}/api/bar-series/coverage`, {
+      headers: headersFor(apiToken),
+      searchParams: { symbol, timeframe },
+      retry: { limit: 1 },
+      timeout: 5_000,
+    })
+    .json<unknown>()
+  const parsed = barCoverageResponseSchema.parse(rawResponse)
+  return { ok: true, registered: parsed.registered, coverage: parsed.coverage }
+}
+
 const reviewCapture = async (
   captureId: string,
   apiBaseUrl: string,
@@ -217,6 +271,27 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
           sendResponse(
             await reviewCapture(
               parsed.data.captureId,
+              settings.apiBaseUrl,
+              settings.apiToken,
+            ),
+          )
+          return
+        case "register-bar-series":
+          sendResponse(
+            await registerBarSeries(
+              parsed.data.symbol,
+              parsed.data.timeframe,
+              parsed.data.csvText,
+              settings.apiBaseUrl,
+              settings.apiToken,
+            ),
+          )
+          return
+        case "get-bar-coverage":
+          sendResponse(
+            await getBarCoverage(
+              parsed.data.symbol,
+              parsed.data.timeframe,
               settings.apiBaseUrl,
               settings.apiToken,
             ),

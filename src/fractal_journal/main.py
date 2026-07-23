@@ -1,12 +1,21 @@
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, ConfigDict
 
-from fractal_journal.ai_review import DecisionReviewResult
+from fractal_journal.ai_review import DecisionReviewResult, DecisionReviewStatus
+from fractal_journal.bar_series import (
+    BarSeriesCoverage,
+    BarSeriesError,
+    BarSeriesRegisterRequest,
+    FileBarSeriesStore,
+    RegisteredBarsProvider,
+    parse_tradingview_csv,
+)
 from fractal_journal.config import Settings
 from fractal_journal.hermes_review import DecisionReviewer, create_hermes_reviewer
 from fractal_journal.kis_auth import load_credentials
@@ -19,6 +28,7 @@ from fractal_journal.schemas import (
     CaptureListResponse,
     CaptureResponse,
     ErrorResponse,
+    EvidenceDataStatus,
     HealthResponse,
     SessionResponse,
 )
@@ -36,6 +46,7 @@ class AppServices:
     settings: Settings
     store: FileCaptureStore
     provider: OhlcvProvider
+    series_store: FileBarSeriesStore
     review_service: DecisionReviewService
 
 
@@ -61,11 +72,14 @@ def create_app(
         else FixtureOhlcvProvider()
     )
     resolved_reviewer = reviewer or create_hermes_reviewer(resolved_settings)
+    series_store = FileBarSeriesStore(resolved_settings.data_dir)
+    evidence_provider = RegisteredBarsProvider(series_store, resolved_provider)
     services = AppServices(
         settings=resolved_settings,
         store=store,
-        provider=resolved_provider,
-        review_service=DecisionReviewService(resolved_provider, resolved_reviewer),
+        provider=evidence_provider,
+        series_store=series_store,
+        review_service=DecisionReviewService(evidence_provider, resolved_reviewer),
     )
 
     @asynccontextmanager
@@ -93,6 +107,7 @@ def _register_routes(app: FastAPI, services: AppServices) -> None:
     _register_core_routes(app, services)
     _register_capture_routes(app, services)
     _register_score_routes(app, services)
+    _register_bar_series_routes(app, services)
 
 
 def _register_core_routes(app: FastAPI, services: AppServices) -> None:
@@ -218,6 +233,80 @@ def _register_score_routes(app: FastAPI, services: AppServices) -> None:
         if review is not None:
             return review
         return ErrorResponse(detail="ai_review_pending")
+
+
+class BarSeriesCoverageResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    registered: bool
+    coverage: BarSeriesCoverage | None = None
+
+
+class BarSeriesRegisterResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    coverage: BarSeriesCoverage
+    reviews: tuple[DecisionReviewResult, ...]
+
+
+def _review_needs_rerun(stored: DecisionReviewResult) -> bool:
+    if stored.status is not DecisionReviewStatus.READY:
+        return True
+    evidence = stored.evidence
+    return evidence is None or evidence.data_status is not EvidenceDataStatus.READY
+
+
+def _register_bar_series_routes(app: FastAPI, services: AppServices) -> None:
+    @app.post("/api/bar-series")
+    def register_bar_series(
+        payload: BarSeriesRegisterRequest,
+        _: Annotated[None, Depends(_check_write_auth(services))],
+    ) -> BarSeriesRegisterResponse:
+        try:
+            bars = parse_tradingview_csv(payload.csv_text)
+            coverage = services.series_store.register(
+                payload.symbol,
+                payload.timeframe,
+                bars,
+            )
+        except BarSeriesError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=exc.reason,
+            ) from exc
+        reviews: list[DecisionReviewResult] = []
+        for capture in services.store.list_captures(limit=1000):
+            if payload.symbol not in (
+                capture.confirmed.provider_symbol,
+                capture.confirmed.symbol,
+            ):
+                continue
+            if capture.confirmed.timeframe != payload.timeframe:
+                continue
+            stored = services.store.load_decision_review(str(capture.id))
+            if stored is not None and not _review_needs_rerun(stored):
+                continue
+            review = services.review_service.review_capture(capture)
+            reviews.append(services.store.save_decision_review(review))
+        return BarSeriesRegisterResponse(coverage=coverage, reviews=tuple(reviews))
+
+    @app.get("/api/bar-series/coverage")
+    async def bar_series_coverage(
+        _: Annotated[None, Depends(_check_auth(services))],
+        symbol: Annotated[str, Query(min_length=1, max_length=32)],
+        timeframe: Annotated[str, Query(min_length=1, max_length=16)],
+    ) -> BarSeriesCoverageResponse:
+        try:
+            coverage = services.series_store.coverage(symbol, timeframe)
+        except BarSeriesError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=exc.reason,
+            ) from exc
+        return BarSeriesCoverageResponse(
+            registered=coverage is not None,
+            coverage=coverage,
+        )
 
 
 AuthDependency = Callable[[str | None, str | None], None]
