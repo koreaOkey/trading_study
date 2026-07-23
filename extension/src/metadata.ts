@@ -143,8 +143,14 @@ export const fallbackCandidateMetadata = (): CandidateMetadata => ({
   replayActive: false,
 })
 
+export const parseSupplyZonePrice = (raw: string): number | undefined => {
+  const value = Number(raw.replaceAll(",", "").trim())
+  return Number.isFinite(value) && value > 0 ? value : undefined
+}
+
 export const buildConfirmedMetadata = (root: HTMLElement): ConfirmedMetadata => {
   const symbol = getInputValue(root, "symbol")
+  const supplyZonePrice = parseSupplyZonePrice(getInputValue(root, "supplyZone"))
   return {
     symbol,
     provider: "kis",
@@ -158,6 +164,7 @@ export const buildConfirmedMetadata = (root: HTMLElement): ConfirmedMetadata => 
     provider_status: "candidate",
     scenario: "wait",
     confidence: 3,
+    ...(supplyZonePrice === undefined ? {} : { supply_zone_price: supplyZonePrice }),
   }
 }
 

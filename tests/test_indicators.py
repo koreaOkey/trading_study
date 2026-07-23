@@ -192,13 +192,17 @@ def test_provider_partial_status_prevents_ready_evidence() -> None:
     assert evidence.null_reasons == ("provider_data_status:partial_data",)
 
 
-def _context(provider_data_status: str = "ok") -> MaCrossoverEvidenceContext:
+def _context(
+    provider_data_status: str = "ok",
+    supply_zone_price: Decimal | None = None,
+) -> MaCrossoverEvidenceContext:
     return MaCrossoverEvidenceContext(
         provider="kis",
         provider_symbol="214450",
         timeframe="1m",
         decision_time_exchange=DECISION_TIME,
         provider_data_status=provider_data_status,
+        supply_zone_price=supply_zone_price,
     )
 
 
@@ -329,3 +333,40 @@ def test_cross_probability_is_deterministic_and_directionally_sane() -> None:
     assert down.cross_probability.target == "reach_cross"
     assert up.cross_probability.probability_pct > down.cross_probability.probability_pct
     assert up.cross_probability.paths == 2000
+
+
+def test_level_breakout_probability_tracks_manual_supply_zone_level() -> None:
+    closes = [Decimal(100) * (Decimal("1.003") ** i) for i in range(260)]
+    bars = _bars(closes)
+    last_close = closes[-1]
+
+    # A level far below the last close is broken in nearly every path; a level
+    # far above it in nearly none. Absent a level, the estimate is absent.
+    below = calculate_ma_crossover_evidence(
+        bars, _context(supply_zone_price=last_close / 2)
+    ).thresholds
+    above = calculate_ma_crossover_evidence(
+        bars, _context(supply_zone_price=last_close * 10)
+    ).thresholds
+    without = calculate_ma_crossover_evidence(bars, _context()).thresholds
+
+    assert below is not None
+    assert below.level_breakout_probability is not None
+    assert above is not None
+    assert above.level_breakout_probability is not None
+    assert without is not None
+    assert without.level_breakout_probability is None
+    assert below.level_breakout_probability.probability_pct > Decimal(95)
+    assert above.level_breakout_probability.probability_pct < Decimal(5)
+    assert below.level_breakout_probability.level_price == last_close / 2
+    assert below.level_breakout_probability.confirm_bars == 3
+
+    # The level only adds a comparison — the shared path set stays identical,
+    # so the other estimates are unchanged by supplying a level.
+    assert without.cross_probability is not None
+    assert below.cross_probability is not None
+    assert (
+        below.cross_probability.probability_pct
+        == without.cross_probability.probability_pct
+    )
+    assert below.breakout_probability == without.breakout_probability

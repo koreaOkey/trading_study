@@ -15,6 +15,7 @@ from fractal_journal.schemas import (
     EvidenceDataStatus,
     GapTrend,
     IndicatorMeasurement,
+    LevelBreakoutProbabilityEstimate,
     MaCrossoverEvidence,
     MaCrossoverThresholds,
     ThresholdProjectionPoint,
@@ -42,6 +43,7 @@ class MaCrossoverEvidenceContext(BaseModel):
     timeframe: str = Field(min_length=1, max_length=16)
     decision_time_exchange: AwareDatetime
     provider_data_status: str = Field(default="ok", min_length=1, max_length=64)
+    supply_zone_price: Decimal | None = Field(default=None, gt=0)
 
 
 def calculate_ma_crossover_evidence(
@@ -95,7 +97,13 @@ def calculate_ma_crossover_evidence(
         vwma_100=vwma_100,
         sma_50_to_sma_200_gap_pct=gap_pct,
         gap_trend=gap_trend,
-        thresholds=_calculate_thresholds(closes, volumes, sma_50.value, sma_200.value),
+        thresholds=_calculate_thresholds(
+            closes,
+            volumes,
+            sma_50.value,
+            sma_200.value,
+            context.supply_zone_price,
+        ),
         null_reasons=unique_reasons,
     )
 
@@ -153,25 +161,27 @@ class _SimulationBase:
     sums: tuple[float, float, float, float]
     crossed: bool
     vwma_available: bool
+    level: float | None = None
 
 
 def _run_paths(
     rng: random.Random,
     base: _SimulationBase,
-) -> tuple[int, int, int, int, int]:
+) -> tuple[int, int, int, int, int, int]:
     pairs = base.pairs
     crossed = base.crossed
     vwma_available = base.vwma_available
+    level = base.level
     cross_successes = 0
-    hit_50 = hit_200 = hit_vwma = hit_all = 0
+    hit_50 = hit_200 = hit_vwma = hit_all = hit_level = 0
     for _ in range(PROBABILITY_PATHS):
         path_closes = list(base.closes)
         path_volumes = list(base.volumes)
         sum_50, sum_200, sum_pv, sum_v = base.sums
         survived = True
         reached = False
-        run_50 = run_200 = run_vwma = run_all = 0
-        path_50 = path_200 = path_vwma = path_all = False
+        run_50 = run_200 = run_vwma = run_all = run_level = 0
+        path_50 = path_200 = path_vwma = path_all = path_level = False
         for _ in range(PROBABILITY_HORIZON_BARS):
             bar_return, bar_volume = pairs[rng.randrange(len(pairs))]
             next_close = path_closes[-1] * (1.0 + bar_return)
@@ -199,24 +209,33 @@ def _run_paths(
             run_200 = run_200 + 1 if above_200 else 0
             run_vwma = run_vwma + 1 if above_vwma else 0
             run_all = run_all + 1 if (above_50 and above_200 and above_vwma) else 0
+            above_level = level is not None and next_close > level
+            run_level = run_level + 1 if above_level else 0
             path_50 = path_50 or run_50 >= BREAKOUT_CONFIRM_BARS
             path_200 = path_200 or run_200 >= BREAKOUT_CONFIRM_BARS
             path_vwma = path_vwma or run_vwma >= BREAKOUT_CONFIRM_BARS
             path_all = path_all or run_all >= BREAKOUT_CONFIRM_BARS
+            path_level = path_level or run_level >= BREAKOUT_CONFIRM_BARS
         if (crossed and survived) or (not crossed and reached):
             cross_successes += 1
         hit_50 += path_50
         hit_200 += path_200
         hit_vwma += path_vwma
         hit_all += path_all
-    return cross_successes, hit_50, hit_200, hit_vwma, hit_all
+        hit_level += path_level
+    return cross_successes, hit_50, hit_200, hit_vwma, hit_all, hit_level
 
 
 def _estimate_probabilities(
     closes: Sequence[Decimal],
     volumes: Sequence[Decimal],
     crossed: bool,
-) -> tuple[CrossProbabilityEstimate | None, BreakoutProbabilityEstimate | None]:
+    supply_zone_price: Decimal | None,
+) -> tuple[
+    CrossProbabilityEstimate | None,
+    BreakoutProbabilityEstimate | None,
+    LevelBreakoutProbabilityEstimate | None,
+]:
     """Bootstrap Monte Carlo on the symbol's own recent (return, volume) pairs.
 
     One shared path set answers both questions: whether the 50/200 cross is
@@ -226,7 +245,7 @@ def _estimate_probabilities(
     identical estimates (reproducible reviews, cache-friendly).
     """
     if len(closes) < SMA_200_PERIOD + 1:
-        return None, None
+        return None, None, None
     history = [float(value) for value in closes]
     history_volumes = [float(value) for value in volumes]
     sample_closes = history[-(PROBABILITY_MAX_RETURN_SAMPLE + 1) :]
@@ -237,7 +256,7 @@ def _estimate_probabilities(
         if sample_closes[index - 1] > 0
     ]
     if len(pairs) < PROBABILITY_MIN_RETURN_SAMPLE:
-        return None, None
+        return None, None, None
 
     seed_material = ",".join(f"{value:.6f}" for value in history[-200:])
     seed = int(sha256(seed_material.encode()).hexdigest()[:12], 16)
@@ -267,9 +286,10 @@ def _estimate_probabilities(
             sums=(base_sum_50, base_sum_200, base_sum_pv, base_sum_v),
             crossed=crossed,
             vwma_available=vwma_available,
+            level=float(supply_zone_price) if supply_zone_price is not None else None,
         ),
     )
-    cross_successes, hit_50, hit_200, hit_vwma, hit_all = counts
+    cross_successes, hit_50, hit_200, hit_vwma, hit_all, hit_level = counts
 
     cross = CrossProbabilityEstimate(
         target="hold_cross" if crossed else "reach_cross",
@@ -288,7 +308,19 @@ def _estimate_probabilities(
         all_above_pct=_probability_pct(hit_all) if vwma_available else None,
         return_sample_bars=len(pairs),
     )
-    return cross, breakout
+    level_breakout = (
+        LevelBreakoutProbabilityEstimate(
+            level_price=supply_zone_price,
+            horizon_bars=PROBABILITY_HORIZON_BARS,
+            confirm_bars=BREAKOUT_CONFIRM_BARS,
+            paths=PROBABILITY_PATHS,
+            probability_pct=_probability_pct(hit_level),
+            return_sample_bars=len(pairs),
+        )
+        if supply_zone_price is not None
+        else None
+    )
+    return cross, breakout, level_breakout
 
 
 def _calculate_thresholds(
@@ -296,6 +328,7 @@ def _calculate_thresholds(
     volumes: Sequence[Decimal],
     sma_50_value: Decimal | None,
     sma_200_value: Decimal | None,
+    supply_zone_price: Decimal | None,
 ) -> MaCrossoverThresholds | None:
     if len(closes) < SMA_50_PERIOD or sma_50_value is None:
         return None
@@ -308,6 +341,7 @@ def _calculate_thresholds(
     projection: tuple[ThresholdProjectionPoint, ...] = ()
     cross_probability = None
     breakout_probability = None
+    level_breakout_probability = None
     basis = "convergence_hold"
     if len(closes) >= SMA_200_PERIOD and sma_200_value is not None:
         crossed = sma_50_value >= sma_200_value
@@ -317,8 +351,8 @@ def _calculate_thresholds(
         ).quantize(TWO_DP)
         cross_min = _structure_threshold(closes, "cross_hold").quantize(TWO_DP)
         projection = _project_structure_line(closes, basis)
-        cross_probability, breakout_probability = _estimate_probabilities(
-            closes, volumes, crossed
+        cross_probability, breakout_probability, level_breakout_probability = (
+            _estimate_probabilities(closes, volumes, crossed, supply_zone_price)
         )
 
     vwma_hold = None
@@ -342,6 +376,7 @@ def _calculate_thresholds(
         structure_projection=projection,
         cross_probability=cross_probability,
         breakout_probability=breakout_probability,
+        level_breakout_probability=level_breakout_probability,
     )
 
 

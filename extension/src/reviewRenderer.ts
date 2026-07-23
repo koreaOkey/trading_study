@@ -207,6 +207,19 @@ const renderThresholds = (evidence: MaCrossoverEvidence | null): HTMLElement => 
     }
   }
 
+  const levelBreakout = thresholds.level_breakout_probability ?? null
+  if (levelBreakout !== null) {
+    block.append(
+      createElement(
+        "div",
+        "fj-probability-line",
+        `매물대 ${formatPrice(levelBreakout.level_price)} 돌파 확률` +
+          `(${levelBreakout.horizon_bars}봉 내 종가 ${levelBreakout.confirm_bars}봉 연속 위): ` +
+          `~${formatPercent(levelBreakout.probability_pct)} (수동 입력 레벨)`,
+      ),
+    )
+  }
+
   const secondaryLines: Array<readonly [string, string | null]> = [
     [
       crossReached ? "수렴 유지" : "크로스 달성",

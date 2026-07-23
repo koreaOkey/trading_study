@@ -67,6 +67,7 @@ class DecisionReviewService:
                 timeframe=capture.confirmed.timeframe,
                 decision_time_exchange=request.decision_time_exchange,
                 provider_data_status=history.status.value,
+                supply_zone_price=capture.confirmed.supply_zone_price,
             ),
         )
         if evidence.data_status is EvidenceDataStatus.UNAVAILABLE:

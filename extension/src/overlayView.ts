@@ -61,6 +61,9 @@ const overlayMarkup = (): string => `
           <button type="button" data-hypothesis="dead_cross_expected" aria-pressed="false">데드크로스</button>
           <button type="button" data-hypothesis="uncertain" aria-pressed="true">미확정</button>
         </div>
+        <label class="fj-note-label">매물대 상단 가격 · 선택
+          <input data-field="supplyZone" inputmode="decimal" autocomplete="off" placeholder="예: 375500 — 입력 시 돌파 확률 계산" />
+        </label>
         <label class="fj-note-label">판단 노트
           <textarea data-field="decisionNote" maxlength="2000" placeholder="판단 근거, 부족한 증거, 무효화 조건을 기록하세요."></textarea>
         </label>

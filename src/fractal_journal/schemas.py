@@ -96,6 +96,7 @@ class ConfirmedMetadata(BaseModel):
     scenario: str = Field(default="wait", max_length=24)
     confidence: int = Field(default=3, ge=1, le=5)
     invalidation: str = Field(default="", max_length=400)
+    supply_zone_price: Decimal | None = Field(default=None, gt=0)
 
 
 class IndicatorMeasurement(BaseModel):
@@ -161,6 +162,32 @@ class BreakoutProbabilityEstimate(BaseModel):
     return_sample_bars: int = Field(ge=1)
 
 
+class LevelBreakoutProbabilityEstimate(BaseModel):
+    """Monte Carlo estimate of closing above a fixed manual price level.
+
+    The level is user-supplied at submission (supply-zone upper bound), not
+    detected from data. A breakout counts only when the simulated close
+    finishes above the fixed level for confirm_bars consecutive bars within
+    the horizon, sharing the same bootstrapped path set as the other
+    estimates. Descriptive statistics under a stated assumption — not a
+    forecast or instruction.
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    schema_version: Literal["level_breakout_probability.v1"] = (
+        "level_breakout_probability.v1"
+    )
+    method: Literal["bootstrap_monte_carlo"] = "bootstrap_monte_carlo"
+    level_source: Literal["manual_supply_zone"] = "manual_supply_zone"
+    level_price: Decimal = Field(gt=0)
+    horizon_bars: int = Field(ge=1)
+    confirm_bars: int = Field(ge=1)
+    paths: int = Field(ge=1)
+    probability_pct: Decimal
+    return_sample_bars: int = Field(ge=1)
+
+
 class MaCrossoverThresholds(BaseModel):
     """Deterministic structure-maintenance levels for the next completed bars.
 
@@ -181,6 +208,7 @@ class MaCrossoverThresholds(BaseModel):
     structure_projection: tuple[ThresholdProjectionPoint, ...] = ()
     cross_probability: CrossProbabilityEstimate | None = None
     breakout_probability: BreakoutProbabilityEstimate | None = None
+    level_breakout_probability: LevelBreakoutProbabilityEstimate | None = None
 
 
 class MaCrossoverEvidence(BaseModel):

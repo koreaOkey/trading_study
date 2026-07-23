@@ -150,6 +150,7 @@ describe("confirmed draft overrides", () => {
       setup: "ma_crossover",
       hypothesis: "uncertain",
       decisionNote: "SMA50이 SMA200에 접근 중",
+      supplyZone: "",
     })
   })
 

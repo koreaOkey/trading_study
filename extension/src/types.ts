@@ -72,6 +72,7 @@ export type ConfirmedMetadata = {
   readonly scenario?: string
   readonly confidence?: number
   readonly invalidation?: string
+  readonly supply_zone_price?: number | undefined
 }
 
 export const confirmedMetadataSchema = z.object({
@@ -82,6 +83,7 @@ export const confirmedMetadataSchema = z.object({
   decision_time_exchange: timezoneAwareIsoSchema,
   exchange_tz: z.string().max(64),
   provider_status: z.enum(providerStatusValues),
+  supply_zone_price: z.number().finite().positive().optional(),
 })
 
 type CaptureDraftBase = {
@@ -203,6 +205,20 @@ export const breakoutProbabilitySchema = z.object({
 
 export type BreakoutProbability = z.infer<typeof breakoutProbabilitySchema>
 
+export const levelBreakoutProbabilitySchema = z.object({
+  schema_version: z.literal("level_breakout_probability.v1"),
+  method: z.literal("bootstrap_monte_carlo"),
+  level_source: z.literal("manual_supply_zone"),
+  level_price: z.string(),
+  horizon_bars: z.number().int().min(1),
+  confirm_bars: z.number().int().min(1),
+  paths: z.number().int().min(1),
+  probability_pct: z.string(),
+  return_sample_bars: z.number().int().min(1),
+})
+
+export type LevelBreakoutProbability = z.infer<typeof levelBreakoutProbabilitySchema>
+
 export const thresholdProjectionPointSchema = z.object({
   bar_offset: z.number().int().min(1),
   min_close: z.string(),
@@ -218,6 +234,10 @@ export const maCrossoverThresholdsSchema = z.object({
   structure_projection: z.array(thresholdProjectionPointSchema),
   cross_probability: crossProbabilitySchema.nullable().optional().default(null),
   breakout_probability: breakoutProbabilitySchema.nullable().optional().default(null),
+  level_breakout_probability: levelBreakoutProbabilitySchema
+    .nullable()
+    .optional()
+    .default(null),
 })
 
 export type MaCrossoverThresholds = z.infer<typeof maCrossoverThresholdsSchema>

@@ -12,6 +12,7 @@ export type StoredCaptureDraft = {
   readonly setup: Setup
   readonly hypothesis: Hypothesis
   readonly decisionNote: string
+  readonly supplyZone: string
 }
 
 export const manualOverrideValue = (
@@ -58,11 +59,13 @@ export const parseStoredCaptureDraft = (draft: unknown): StoredCaptureDraft | nu
       : typeof legacyNotes === "string"
         ? legacyNotes
         : ""
+  const storedSupplyZone = Reflect.get(draft, "supplyZone")
   return {
     confirmedOverrides: parseConfirmedOverrides(draft),
     setup: "ma_crossover",
     hypothesis,
     decisionNote,
+    supplyZone: typeof storedSupplyZone === "string" ? storedSupplyZone : "",
   }
 }
 
@@ -127,6 +130,7 @@ export const saveDraft = async (root: HTMLElement): Promise<void> => {
     setup: "ma_crossover",
     hypothesis: getInputValue(root, "hypothesis"),
     decisionNote: getTextareaValue(root, "decisionNote"),
+    supplyZone: getInputValue(root, "supplyZone"),
   } as const
   await chrome.storage.local.set({ fractalReplayDraft: draft })
 }
@@ -151,5 +155,9 @@ export const restoreDraft = async (root: HTMLElement): Promise<void> => {
   const decisionNote = root.querySelector<HTMLTextAreaElement>('[data-field="decisionNote"]')
   if (decisionNote !== null) {
     decisionNote.value = draft.decisionNote
+  }
+  const supplyZone = root.querySelector<HTMLInputElement>('[data-field="supplyZone"]')
+  if (supplyZone !== null) {
+    supplyZone.value = draft.supplyZone
   }
 }
