@@ -130,7 +130,7 @@ def collect_historical_bars(
     raw_hash = sha256("\n".join(response_payloads).encode()).hexdigest()
     return HistoricalBarsResult(
         provider="kis",
-        status=_history_status(stop_reason, bars, request.target_bars),
+        status=history_status(stop_reason, bars, request.target_bars),
         bars=bars,
         provenance=HistoricalProvenance(
             endpoint=HISTORY_ENDPOINT,
@@ -184,7 +184,7 @@ def _unsupported_history_result(
     )
 
 
-def _history_status(
+def history_status(
     stop_reason: HistoricalStopReason,
     bars: tuple[OhlcvBar, ...],
     target_bars: int,

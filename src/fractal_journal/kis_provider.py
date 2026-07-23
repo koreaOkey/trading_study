@@ -14,6 +14,11 @@ from fractal_journal.kis_auth import (
     get_access_token,
     invalidate_token_cache,
 )
+from fractal_journal.kis_daily_history import (
+    DAILY_TIMEFRAME,
+    KisDailyPageFetcher,
+    collect_daily_bars,
+)
 from fractal_journal.kis_history import (
     KisHistoryPageFetcher,
     collect_historical_bars,
@@ -114,6 +119,18 @@ class KisOhlcvProvider:
             self.token_cache_path,
             force_refresh=force_refresh,
         )
+        if request.timeframe == DAILY_TIMEFRAME:
+            fetch_daily_page = KisDailyPageFetcher(
+                client=client,
+                token=token,
+                credentials=self.credentials,
+                request=request,
+            )
+            return collect_daily_bars(
+                request,
+                fetch_daily_page,
+                self.history_throttle,
+            )
         fetch_page = KisHistoryPageFetcher(
             client=client,
             token=token,

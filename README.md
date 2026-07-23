@@ -91,10 +91,11 @@ Edits are automatically saved as a local draft. Closing the sheet saves the
 draft but does not submit it. There are no Long, Short, Watch, or Skip submission
 buttons.
 
-Only positive ASCII numeric minute timeframes are supported by KIS history, for
-example `1`, `3`, `5`, `15`, `60`, or `240`. TradingView hour resolutions are
-normalized to minutes. Seconds, daily, weekly, and monthly values such as `30S`,
-`1D`, `1W`, and `1M` are rejected for evidence as `unsupported_timeframe`.
+KIS evidence supports positive ASCII numeric minute timeframes, for example
+`1`, `3`, `5`, `15`, `60`, or `240`, plus the daily timeframe `1D`. TradingView
+hour resolutions are normalized to minutes. Seconds, weekly, and monthly values
+such as `30S`, `1W`, and `1M` are rejected for evidence as
+`unsupported_timeframe`.
 
 ## Evidence boundary and price basis
 
@@ -112,6 +113,18 @@ the page cap (default `256`), sleeping `0.05` seconds between page calls. A KIS
 no-progress stops return partial or empty evidence rather than inventing values.
 Higher numeric minute timeframes need proportionally more one-minute rows and may
 therefore require many pages.
+
+Daily (`1D`) evidence uses the KIS daily chart endpoint
+(`inquire-daily-itemchartprice`, `FHKST03010100`) instead of aggregating
+one-minute rows, paging backward in 140-calendar-day windows. Each daily bar is
+stamped at the 15:30 Asia/Seoul regular-session close, because that is when the
+bar is complete: an intraday decision time therefore excludes the decision
+date's still-forming daily candle, and to include the decision-date candle the
+Decision time must be 15:30 or later on that date. Daily requests ask KIS for
+adjusted prices (`FID_ORG_ADJ_PRC=0`) so SMA 50/200 and VWMA 100 windows that
+span corporate actions stay comparable; this is recorded in provenance as
+`kis_daily_adjusted_requested_unverified` and remains provenance, not
+verification — TradingView and KIS daily values can still differ.
 
 If KIS rejects a cached access token with `EGW00123`, the provider deletes that
 cache entry, forces one fresh token issue, and retries once. For paged history it

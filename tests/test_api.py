@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from fractal_journal.ai_review import DecisionReviewFailureCode, DecisionReviewResult
 from fractal_journal.config import Settings
 from fractal_journal.main import create_app
+from fractal_journal.provider import FixtureOhlcvProvider
 from fractal_journal.schemas import (
     CaptureCreate,
     CaptureListResponse,
@@ -78,6 +79,7 @@ def test_create_and_list_capture(tmp_path: Path) -> None:
             screenshot_dir=tmp_path / "screenshots",
             api_token=token,
         ),
+        provider=FixtureOhlcvProvider(),
     )
     with TestClient(app) as client:
         response = client.post(

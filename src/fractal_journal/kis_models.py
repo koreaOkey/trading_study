@@ -26,6 +26,17 @@ class KisBar(BaseModel):
     cntg_vol: str | None = None
 
 
+class KisDailyBar(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    stck_bsop_date: str
+    stck_oprc: str | None = None
+    stck_hgpr: str | None = None
+    stck_lwpr: str | None = None
+    stck_clpr: str | None = None
+    acml_vol: str | None = None
+
+
 class KisQuoteResponse(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
@@ -33,6 +44,15 @@ class KisQuoteResponse(BaseModel):
     msg_cd: str
     msg1: str
     output2: tuple[KisBar, ...] = ()
+
+
+class KisDailyChartResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    rt_cd: str
+    msg_cd: str
+    msg1: str
+    output2: tuple[KisDailyBar, ...] = ()
 
 
 def parse_kis_quote_response(response: httpx2.Response) -> KisQuoteResponse:
@@ -43,6 +63,35 @@ def parse_kis_quote_response(response: httpx2.Response) -> KisQuoteResponse:
             msg1="redirect_rejected",
         )
     return KisQuoteResponse.model_validate(response.json())
+
+
+def parse_kis_daily_response(response: httpx2.Response) -> KisDailyChartResponse:
+    if HTTP_REDIRECT_MIN <= response.status_code < HTTP_REDIRECT_MAX:
+        return KisDailyChartResponse(
+            rt_cd="1",
+            msg_cd=REDIRECT_REJECTED_MESSAGE_CODE,
+            msg1="redirect_rejected",
+        )
+    return KisDailyChartResponse.model_validate(response.json())
+
+
+# A daily bar only exists as evidence once its session has completed, so it is
+# stamped at the regular-session close instead of midnight or the open.
+def daily_bar_to_ohlcv(bar: KisDailyBar) -> OhlcvBar:
+    exchange_time = datetime.strptime(
+        bar.stck_bsop_date,
+        "%Y%m%d",
+    ).replace(hour=15, minute=30, tzinfo=SEOUL)
+    close = Decimal(bar.stck_clpr or "0")
+    return OhlcvBar(
+        time_utc=exchange_time.astimezone(UTC),
+        time_exchange=exchange_time.isoformat(),
+        open=Decimal(bar.stck_oprc or close),
+        high=Decimal(bar.stck_hgpr or close),
+        low=Decimal(bar.stck_lwpr or close),
+        close=close,
+        volume=int(bar.acml_vol or "0"),
+    )
 
 
 def to_ohlcv_bar(bar: KisBar) -> OhlcvBar:
