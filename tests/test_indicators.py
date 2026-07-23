@@ -225,3 +225,79 @@ def _bar(
         close=close,
         volume=volume,
     )
+
+
+def test_thresholds_solve_next_bar_structure_conditions_exactly() -> None:
+    # Given: 200 flat bars at 100 then one at 200 (SMA50 102 > SMA200 100.5).
+    bars = _bars([Decimal(100)] * 200 + [Decimal(200)])
+
+    # When
+    evidence = calculate_ma_crossover_evidence(bars, _context())
+
+    # Then
+    thresholds = evidence.thresholds
+    assert thresholds is not None
+    assert thresholds.basis == "cross_hold"
+    # Verify by simulation: a close exactly at the threshold keeps
+    # SMA50 >= SMA200 on the next bar, one tick below breaks it.
+    closes = [Decimal(100)] * 200 + [Decimal(200)]
+    assert thresholds.cross_min_close is not None
+
+    def relation(next_close: Decimal) -> Decimal:
+        extended = [*closes, next_close]
+        sma_50 = sum(extended[-50:]) / 50
+        sma_200 = sum(extended[-200:]) / 200
+        return sma_50 - sma_200
+
+    assert relation(thresholds.cross_min_close) >= 0
+    assert relation(thresholds.cross_min_close - Decimal(1)) < 0
+
+    # sma50_hold: close at threshold stays at/above the new SMA50.
+    assert thresholds.sma50_hold_min_close is not None
+    hold = thresholds.sma50_hold_min_close
+    new_sma_50 = (sum(closes[-49:]) + hold) / 50
+    assert hold >= new_sma_50 - Decimal("0.01")
+
+    # vwma100_hold equals the VWMA of the 99 bars that stay in the window.
+    assert thresholds.vwma100_hold_min_close is not None
+    kept = closes[-99:]
+    assert thresholds.vwma100_hold_min_close == (
+        sum(kept) / Decimal(99)
+    ).quantize(Decimal("0.01"))
+
+    # Projection provides five forward points of the active basis line.
+    assert len(thresholds.structure_projection) == 5
+    assert thresholds.structure_projection[0].min_close == thresholds.cross_min_close
+
+
+def test_thresholds_use_convergence_basis_below_cross() -> None:
+    # Given: SMA50 below SMA200 (pre-cross).
+    bars = _bars([Decimal(200)] * 200 + [Decimal(100)])
+
+    # When
+    evidence = calculate_ma_crossover_evidence(bars, _context())
+
+    # Then
+    thresholds = evidence.thresholds
+    assert thresholds is not None
+    assert thresholds.basis == "convergence_hold"
+    assert thresholds.convergence_min_close is not None
+    # Convergence threshold: next close above it narrows the 50/200 gap.
+    closes = [Decimal(200)] * 200 + [Decimal(100)]
+    gap_now = sum(closes[-200:]) / 200 - sum(closes[-50:]) / 50
+
+    def gap_after(next_close: Decimal) -> Decimal:
+        extended = [*closes, next_close]
+        return sum(extended[-200:]) / 200 - sum(extended[-50:]) / 50
+
+    at = thresholds.convergence_min_close
+    assert gap_after(at + Decimal(1)) < gap_now
+    assert gap_after(at - Decimal(1)) > gap_now
+
+
+def test_thresholds_absent_below_minimum_bars() -> None:
+    bars = _bars([Decimal(100)] * 30)
+
+    evidence = calculate_ma_crossover_evidence(bars, _context())
+
+    assert evidence.thresholds is None

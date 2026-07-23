@@ -11,12 +11,16 @@ from fractal_journal.schemas import (
     GapTrend,
     IndicatorMeasurement,
     MaCrossoverEvidence,
+    MaCrossoverThresholds,
+    ThresholdProjectionPoint,
 )
 
 SMA_50_PERIOD: Final = 50
 SMA_200_PERIOD: Final = 200
 VWMA_100_PERIOD: Final = 100
 PERCENT: Final = Decimal(100)
+THRESHOLD_PROJECTION_BARS: Final = 5
+TWO_DP: Final = Decimal("0.01")
 READY_PROVIDER_STATUSES: Final = frozenset({"ok", "ready"})
 
 
@@ -81,7 +85,93 @@ def calculate_ma_crossover_evidence(
         vwma_100=vwma_100,
         sma_50_to_sma_200_gap_pct=gap_pct,
         gap_trend=gap_trend,
+        thresholds=_calculate_thresholds(closes, volumes, sma_50.value, sma_200.value),
         null_reasons=unique_reasons,
+    )
+
+
+def _structure_threshold(closes: Sequence[Decimal], basis: str) -> Decimal:
+    """Minimum next-bar close that keeps the structure condition true.
+
+    Both SMAs are linear in the next close P, so the condition solves exactly:
+    convergence_hold keeps the 50/200 gap narrowing, cross_hold keeps (or
+    reaches) SMA50 >= SMA200.
+    """
+    leaving_50 = closes[-SMA_50_PERIOD]
+    leaving_200 = closes[-SMA_200_PERIOD]
+    if basis == "convergence_hold":
+        return (4 * leaving_50 - leaving_200) / 3
+    sma_50 = sum(closes[-SMA_50_PERIOD:], Decimal(0)) / SMA_50_PERIOD
+    sma_200 = sum(closes[-SMA_200_PERIOD:], Decimal(0)) / SMA_200_PERIOD
+    gap = sma_200 - sma_50
+    window_shift = leaving_50 / SMA_50_PERIOD - leaving_200 / SMA_200_PERIOD
+    return (gap + window_shift) * SMA_200_PERIOD / 3
+
+
+def _project_structure_line(
+    closes: Sequence[Decimal],
+    basis: str,
+) -> tuple[ThresholdProjectionPoint, ...]:
+    simulated = list(closes)
+    points: list[ThresholdProjectionPoint] = []
+    for bar_offset in range(1, THRESHOLD_PROJECTION_BARS + 1):
+        threshold = _structure_threshold(simulated, basis)
+        points.append(
+            ThresholdProjectionPoint(
+                bar_offset=bar_offset,
+                min_close=threshold.quantize(TWO_DP),
+            )
+        )
+        # Boundary path: assume the close lands exactly on the threshold. A
+        # non-positive threshold means the condition cannot break next bar;
+        # carry the last close forward so the simulation stays realistic.
+        simulated.append(threshold if threshold > 0 else simulated[-1])
+    return tuple(points)
+
+
+def _calculate_thresholds(
+    closes: Sequence[Decimal],
+    volumes: Sequence[Decimal],
+    sma_50_value: Decimal | None,
+    sma_200_value: Decimal | None,
+) -> MaCrossoverThresholds | None:
+    if len(closes) < SMA_50_PERIOD or sma_50_value is None:
+        return None
+    leaving_50 = closes[-SMA_50_PERIOD]
+    sma50_hold = (
+        (SMA_50_PERIOD * sma_50_value - leaving_50) / (SMA_50_PERIOD - 1)
+    ).quantize(TWO_DP)
+
+    convergence_min = cross_min = None
+    projection: tuple[ThresholdProjectionPoint, ...] = ()
+    basis = "convergence_hold"
+    if len(closes) >= SMA_200_PERIOD and sma_200_value is not None:
+        basis = "cross_hold" if sma_50_value >= sma_200_value else "convergence_hold"
+        convergence_min = _structure_threshold(
+            closes, "convergence_hold"
+        ).quantize(TWO_DP)
+        cross_min = _structure_threshold(closes, "cross_hold").quantize(TWO_DP)
+        projection = _project_structure_line(closes, basis)
+
+    vwma_hold = None
+    if len(closes) >= VWMA_100_PERIOD:
+        kept_closes = closes[-(VWMA_100_PERIOD - 1) :]
+        kept_volumes = volumes[-(VWMA_100_PERIOD - 1) :]
+        volume_sum = sum(kept_volumes, Decimal(0))
+        if volume_sum > 0:
+            pairs = zip(kept_closes, kept_volumes, strict=True)
+            weighted = sum((close * volume for close, volume in pairs), Decimal(0))
+            # The next bar's own volume cancels out of "close >= next VWMA100",
+            # so this needs no future-volume assumption.
+            vwma_hold = (weighted / volume_sum).quantize(TWO_DP)
+
+    return MaCrossoverThresholds(
+        basis=basis,
+        convergence_min_close=convergence_min,
+        cross_min_close=cross_min,
+        sma50_hold_min_close=sma50_hold,
+        vwma100_hold_min_close=vwma_hold,
+        structure_projection=projection,
     )
 
 

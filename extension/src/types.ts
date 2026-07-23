@@ -176,6 +176,23 @@ export const decisionReviewRiskNote =
 
 const nullableDecimalSchema = z.string().nullable()
 
+export const thresholdProjectionPointSchema = z.object({
+  bar_offset: z.number().int().min(1),
+  min_close: z.string(),
+})
+
+export const maCrossoverThresholdsSchema = z.object({
+  schema_version: z.literal("ma_crossover_thresholds.v1"),
+  basis: z.enum(["cross_hold", "convergence_hold"]),
+  convergence_min_close: nullableDecimalSchema,
+  cross_min_close: nullableDecimalSchema,
+  sma50_hold_min_close: nullableDecimalSchema,
+  vwma100_hold_min_close: nullableDecimalSchema,
+  structure_projection: z.array(thresholdProjectionPointSchema),
+})
+
+export type MaCrossoverThresholds = z.infer<typeof maCrossoverThresholdsSchema>
+
 export const indicatorMeasurementSchema = z.object({
   value: nullableDecimalSchema,
   previous_value: nullableDecimalSchema,
@@ -201,6 +218,7 @@ export const maCrossoverEvidenceSchema = z.object({
   vwma_100: indicatorMeasurementSchema,
   sma_50_to_sma_200_gap_pct: nullableDecimalSchema,
   gap_trend: z.enum(gapTrendValues).nullable(),
+  thresholds: maCrossoverThresholdsSchema.nullable().optional().default(null),
   null_reasons: z.array(z.string()),
 })
 

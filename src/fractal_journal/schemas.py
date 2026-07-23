@@ -109,6 +109,33 @@ class IndicatorMeasurement(BaseModel):
     null_reason: str | None = Field(default=None, max_length=200)
 
 
+class ThresholdProjectionPoint(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    bar_offset: int = Field(ge=1)
+    min_close: Decimal
+
+
+class MaCrossoverThresholds(BaseModel):
+    """Deterministic structure-maintenance levels for the next completed bars.
+
+    Each value is the minimum next-bar close that keeps the stated MA
+    condition true — factual indicator arithmetic, not a trade instruction.
+    The projection assumes each future close lands exactly on the threshold
+    (boundary path), which is the most conservative hold scenario.
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    schema_version: Literal["ma_crossover_thresholds.v1"] = "ma_crossover_thresholds.v1"
+    basis: Literal["cross_hold", "convergence_hold"]
+    convergence_min_close: Decimal | None = None
+    cross_min_close: Decimal | None = None
+    sma50_hold_min_close: Decimal | None = None
+    vwma100_hold_min_close: Decimal | None = None
+    structure_projection: tuple[ThresholdProjectionPoint, ...] = ()
+
+
 class MaCrossoverEvidence(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
@@ -127,6 +154,7 @@ class MaCrossoverEvidence(BaseModel):
     vwma_100: IndicatorMeasurement
     sma_50_to_sma_200_gap_pct: Decimal | None = None
     gap_trend: GapTrend | None = None
+    thresholds: MaCrossoverThresholds | None = None
     null_reasons: tuple[str, ...] = Field(default_factory=tuple)
 
 

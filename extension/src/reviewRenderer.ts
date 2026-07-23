@@ -66,6 +66,30 @@ const measurementText = (
   return `${label}: ${measurement.value}, ${slope}`
 }
 
+const thresholdLines = (evidence: MaCrossoverEvidence | null): readonly string[] => {
+  const thresholds = evidence?.thresholds ?? null
+  if (thresholds === null) {
+    return ["Unavailable — needs at least 50 bars of evidence"]
+  }
+  const value = (raw: string | null): string => (raw === null ? "unavailable" : raw)
+  const basisLabel =
+    thresholds.basis === "cross_hold"
+      ? "cross hold (keep SMA50 ≥ SMA200)"
+      : "convergence hold (keep 50/200 gap narrowing)"
+  const projection = thresholds.structure_projection
+    .map((point) => `+${point.bar_offset}: ${point.min_close}`)
+    .join(" · ")
+  return [
+    `Active structure: ${basisLabel}`,
+    `Convergence hold — min close ${value(thresholds.convergence_min_close)}`,
+    `Cross reach/hold — min close ${value(thresholds.cross_min_close)}`,
+    `Stay above SMA50 — min close ${value(thresholds.sma50_hold_min_close)}`,
+    `Stay above VWMA100 — min close ${value(thresholds.vwma100_hold_min_close)}`,
+    ...(projection.length > 0 ? [`Structure line projection ${projection}`] : []),
+    "MA arithmetic facts for the next completed bar — not trade instructions",
+  ]
+}
+
 const evidenceLines = (evidence: MaCrossoverEvidence | null): readonly string[] => {
   if (evidence === null) {
     return ["Indicator evidence unavailable"]
@@ -131,6 +155,7 @@ export const renderReview = (root: HTMLElement, result: DecisionReviewResult): v
       ...emptyReviewLists(),
       renderTextBlock("Revised decision note", "Unavailable because the review failed."),
       renderTextBlock("Risk note", "Unavailable because the review failed."),
+      renderList("Structure thresholds", thresholdLines(result.evidence)),
       renderList("Evidence summary", evidenceLines(result.evidence)),
       renderTextBlock(
         "Model metadata",
@@ -172,6 +197,7 @@ export const renderReview = (root: HTMLElement, result: DecisionReviewResult): v
     renderList("Contradictions", review.contradictions),
     revised,
     risk,
+    renderList("Structure thresholds", thresholdLines(result.evidence)),
     renderList("Evidence summary", evidenceLines(result.evidence)),
     renderTextBlock(
       "Model metadata",
