@@ -301,3 +301,25 @@ def test_thresholds_absent_below_minimum_bars() -> None:
     evidence = calculate_ma_crossover_evidence(bars, _context())
 
     assert evidence.thresholds is None
+
+
+def test_cross_probability_is_deterministic_and_directionally_sane() -> None:
+    # Given: a steady uptrend (already crossed, hold should be near-certain)
+    # vs a steady decline (reaching a cross should be near-impossible).
+    rising = _bars([Decimal(100) * (Decimal("1.003") ** i) for i in range(260)])
+    falling = _bars([Decimal(300) - Decimal(i) for i in range(260)])
+
+    # When
+    up = calculate_ma_crossover_evidence(rising, _context()).thresholds
+    down = calculate_ma_crossover_evidence(falling, _context()).thresholds
+    up_again = calculate_ma_crossover_evidence(rising, _context()).thresholds
+
+    # Then: estimates exist, are reproducible, and order sanely.
+    assert up is not None and up.cross_probability is not None
+    assert down is not None and down.cross_probability is not None
+    assert up_again is not None and up_again.cross_probability is not None
+    assert up.cross_probability.probability_pct == up_again.cross_probability.probability_pct
+    assert up.cross_probability.target == "hold_cross"
+    assert down.cross_probability.target == "reach_cross"
+    assert up.cross_probability.probability_pct > down.cross_probability.probability_pct
+    assert up.cross_probability.paths == 2000

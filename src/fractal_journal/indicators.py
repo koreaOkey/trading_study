@@ -1,12 +1,15 @@
+import random
 from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
+from hashlib import sha256
 from typing import ClassVar, Final
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from fractal_journal.provider import OhlcvBar
 from fractal_journal.schemas import (
+    CrossProbabilityEstimate,
     EvidenceDataStatus,
     GapTrend,
     IndicatorMeasurement,
@@ -21,6 +24,10 @@ VWMA_100_PERIOD: Final = 100
 PERCENT: Final = Decimal(100)
 THRESHOLD_PROJECTION_BARS: Final = 5
 TWO_DP: Final = Decimal("0.01")
+PROBABILITY_HORIZON_BARS: Final = 30  # rule expiry_bars와 정합
+PROBABILITY_PATHS: Final = 2_000
+PROBABILITY_MIN_RETURN_SAMPLE: Final = 60
+PROBABILITY_MAX_RETURN_SAMPLE: Final = 250
 READY_PROVIDER_STATUSES: Final = frozenset({"ok", "ready"})
 
 
@@ -129,6 +136,62 @@ def _project_structure_line(
     return tuple(points)
 
 
+def _estimate_cross_probability(
+    closes: Sequence[Decimal],
+    crossed: bool,
+) -> CrossProbabilityEstimate | None:
+    """Bootstrap Monte Carlo on the symbol's own recent bar returns.
+
+    Seeded from the input closes so identical evidence always yields the
+    identical estimate (reproducible reviews, cache-friendly).
+    """
+    if len(closes) < SMA_200_PERIOD + 1:
+        return None
+    history = [float(value) for value in closes]
+    sample = history[-(PROBABILITY_MAX_RETURN_SAMPLE + 1) :]
+    returns = [
+        sample[index] / sample[index - 1] - 1.0
+        for index in range(1, len(sample))
+        if sample[index - 1] > 0
+    ]
+    if len(returns) < PROBABILITY_MIN_RETURN_SAMPLE:
+        return None
+
+    seed_material = ",".join(f"{value:.6f}" for value in history[-200:])
+    seed = int(sha256(seed_material.encode()).hexdigest()[:12], 16)
+    rng = random.Random(seed)  # noqa: S311 — simulation sampling, not cryptography
+    successes = 0
+    base = history[-SMA_200_PERIOD:]
+    base_sum_50 = sum(base[-SMA_50_PERIOD:])
+    base_sum_200 = sum(base)
+    for _ in range(PROBABILITY_PATHS):
+        combined = list(base)
+        sum_50 = base_sum_50
+        sum_200 = base_sum_200
+        survived = True
+        reached = False
+        for _ in range(PROBABILITY_HORIZON_BARS):
+            next_close = combined[-1] * (1.0 + rng.choice(returns))
+            sum_50 += next_close - combined[-SMA_50_PERIOD]
+            sum_200 += next_close - combined[-SMA_200_PERIOD]
+            combined.append(next_close)
+            if sum_50 / SMA_50_PERIOD >= sum_200 / SMA_200_PERIOD:
+                reached = True
+            else:
+                survived = False
+        if (crossed and survived) or (not crossed and reached):
+            successes += 1
+
+    probability = Decimal(successes) / Decimal(PROBABILITY_PATHS) * PERCENT
+    return CrossProbabilityEstimate(
+        target="hold_cross" if crossed else "reach_cross",
+        horizon_bars=PROBABILITY_HORIZON_BARS,
+        paths=PROBABILITY_PATHS,
+        probability_pct=probability.quantize(Decimal("0.1")),
+        return_sample_bars=len(returns),
+    )
+
+
 def _calculate_thresholds(
     closes: Sequence[Decimal],
     volumes: Sequence[Decimal],
@@ -144,14 +207,17 @@ def _calculate_thresholds(
 
     convergence_min = cross_min = None
     projection: tuple[ThresholdProjectionPoint, ...] = ()
+    cross_probability = None
     basis = "convergence_hold"
     if len(closes) >= SMA_200_PERIOD and sma_200_value is not None:
-        basis = "cross_hold" if sma_50_value >= sma_200_value else "convergence_hold"
+        crossed = sma_50_value >= sma_200_value
+        basis = "cross_hold" if crossed else "convergence_hold"
         convergence_min = _structure_threshold(
             closes, "convergence_hold"
         ).quantize(TWO_DP)
         cross_min = _structure_threshold(closes, "cross_hold").quantize(TWO_DP)
         projection = _project_structure_line(closes, basis)
+        cross_probability = _estimate_cross_probability(closes, crossed)
 
     vwma_hold = None
     if len(closes) >= VWMA_100_PERIOD:
@@ -172,6 +238,7 @@ def _calculate_thresholds(
         sma50_hold_min_close=sma50_hold,
         vwma100_hold_min_close=vwma_hold,
         structure_projection=projection,
+        cross_probability=cross_probability,
     )
 
 

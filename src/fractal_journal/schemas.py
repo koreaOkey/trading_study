@@ -116,6 +116,27 @@ class ThresholdProjectionPoint(BaseModel):
     min_close: Decimal
 
 
+class CrossProbabilityEstimate(BaseModel):
+    """Bootstrap Monte Carlo estimate of the golden-cross outcome.
+
+    Pre-cross: probability that SMA50 reaches SMA200 within horizon_bars.
+    Post-cross: probability that the cross survives every bar of the horizon.
+    Future closes are simulated by resampling the symbol's own recent bar
+    returns — descriptive statistics under a stated assumption, not a trade
+    instruction and not a market forecast.
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    schema_version: Literal["cross_probability.v1"] = "cross_probability.v1"
+    method: Literal["bootstrap_monte_carlo"] = "bootstrap_monte_carlo"
+    target: Literal["reach_cross", "hold_cross"]
+    horizon_bars: int = Field(ge=1)
+    paths: int = Field(ge=1)
+    probability_pct: Decimal
+    return_sample_bars: int = Field(ge=1)
+
+
 class MaCrossoverThresholds(BaseModel):
     """Deterministic structure-maintenance levels for the next completed bars.
 
@@ -134,6 +155,7 @@ class MaCrossoverThresholds(BaseModel):
     sma50_hold_min_close: Decimal | None = None
     vwma100_hold_min_close: Decimal | None = None
     structure_projection: tuple[ThresholdProjectionPoint, ...] = ()
+    cross_probability: CrossProbabilityEstimate | None = None
 
 
 class MaCrossoverEvidence(BaseModel):

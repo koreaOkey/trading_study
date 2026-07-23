@@ -151,38 +151,68 @@ const renderThresholds = (evidence: MaCrossoverEvidence | null): HTMLElement => 
     return block
   }
   const crossReached = thresholds.basis === "cross_hold"
-  const lines: Array<readonly [string, string | null, boolean]> = [
-    ["수렴 유지", thresholds.convergence_min_close, !crossReached],
-    [crossReached ? "크로스 유지" : "크로스 달성", thresholds.cross_min_close, crossReached],
-    ["SMA50 위 유지", thresholds.sma50_hold_min_close, false],
-    ["VWMA100 위 유지", thresholds.vwma100_hold_min_close, false],
+
+  // 골크 시나리오 생존선: 크로스 전엔 수렴 유지, 후엔 크로스 유지가 그 선이다.
+  const activeLabel = crossReached ? "크로스 유지" : "수렴 유지"
+  const activeValue = crossReached
+    ? thresholds.cross_min_close
+    : thresholds.convergence_min_close
+  const activeRow = createElement("div", "fj-threshold-row")
+  activeRow.dataset["active"] = "true"
+  activeRow.append(
+    createElement("span", "fj-threshold-star", "★"),
+    createElement("span", "fj-metric-label", activeLabel),
+    createElement("span", "fj-metric-value", `≥ ${formatPrice(activeValue)}`),
+  )
+  block.append(activeRow)
+
+  const probability = thresholds.cross_probability ?? null
+  if (probability !== null) {
+    const probabilityLabel =
+      probability.target === "reach_cross"
+        ? `${probability.horizon_bars}봉 내 크로스 확률`
+        : `${probability.horizon_bars}봉 유지 확률`
+    block.append(
+      createElement(
+        "div",
+        "fj-probability-line",
+        `${probabilityLabel} ~${formatPercent(probability.probability_pct)} ` +
+          `(최근 ${probability.return_sample_bars}봉 변동성 가정, 시뮬레이션 ${probability.paths.toLocaleString("ko-KR")}회)`,
+      ),
+    )
+  }
+
+  const secondaryLines: Array<readonly [string, string | null]> = [
+    [
+      crossReached ? "수렴 유지" : "크로스 달성",
+      crossReached ? thresholds.convergence_min_close : thresholds.cross_min_close,
+    ],
+    ["SMA50 위 유지", thresholds.sma50_hold_min_close],
+    ["VWMA100 위 유지", thresholds.vwma100_hold_min_close],
   ]
-  for (const [label, value, active] of lines) {
+  const secondaryRows = secondaryLines.map(([label, value]) => {
     const row = createElement("div", "fj-threshold-row")
-    if (active) {
-      row.dataset["active"] = "true"
-    }
     row.append(
-      createElement("span", "fj-threshold-star", active ? "★" : ""),
+      createElement("span", "fj-threshold-star", ""),
       createElement("span", "fj-metric-label", label),
       createElement("span", "fj-metric-value", `≥ ${formatPrice(value)}`),
     )
-    block.append(row)
-  }
+    return row
+  })
+  const extras: HTMLElement[] = [...secondaryRows]
   if (thresholds.structure_projection.length > 0) {
     const projectionText = thresholds.structure_projection
       .map((point) => `+${point.bar_offset}봉 ${formatPrice(point.min_close)}`)
       .join(" · ")
-    block.append(
-      collapsible("향후 5봉 투영 (경계 가정)", [
-        paragraph(projectionText),
-        paragraph(
-          "각 값은 해당 조건이 유지되는 최소 종가이며 매매 지시가 아닙니다.",
-          "fj-review-empty",
-        ),
-      ]),
-    )
+    extras.push(paragraph(`★ 라인 5봉 투영: ${projectionText}`))
   }
+  extras.push(
+    paragraph(
+      "각 값은 해당 조건이 유지되는 최소 종가이며 매매 지시가 아닙니다.",
+      "fj-review-empty",
+    ),
+  )
+  block.append(collapsible("보조 라인 · 투영", extras))
   return block
 }
 

@@ -476,3 +476,9 @@
 .fj-review-details[open] summary {
   margin-bottom: 4px;
 }
+
+.fj-probability-line {
+  margin: 2px 0 4px 20px;
+  color: var(--fj-accent);
+  font-size: 11px;
+}

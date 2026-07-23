@@ -176,6 +176,18 @@ export const decisionReviewRiskNote =
 
 const nullableDecimalSchema = z.string().nullable()
 
+export const crossProbabilitySchema = z.object({
+  schema_version: z.literal("cross_probability.v1"),
+  method: z.literal("bootstrap_monte_carlo"),
+  target: z.enum(["reach_cross", "hold_cross"]),
+  horizon_bars: z.number().int().min(1),
+  paths: z.number().int().min(1),
+  probability_pct: z.string(),
+  return_sample_bars: z.number().int().min(1),
+})
+
+export type CrossProbability = z.infer<typeof crossProbabilitySchema>
+
 export const thresholdProjectionPointSchema = z.object({
   bar_offset: z.number().int().min(1),
   min_close: z.string(),
@@ -189,6 +201,7 @@ export const maCrossoverThresholdsSchema = z.object({
   sma50_hold_min_close: nullableDecimalSchema,
   vwma100_hold_min_close: nullableDecimalSchema,
   structure_projection: z.array(thresholdProjectionPointSchema),
+  cross_probability: crossProbabilitySchema.nullable().optional().default(null),
 })
 
 export type MaCrossoverThresholds = z.infer<typeof maCrossoverThresholdsSchema>
