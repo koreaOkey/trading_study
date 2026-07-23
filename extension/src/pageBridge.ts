@@ -104,6 +104,55 @@ const columnTitle = (field: ExportDataField, index: number): string => {
   return field.plotTitle || field.sourceTitle || `col${index}`
 }
 
+type SeriesBarsApi = {
+  readonly size: () => number
+  readonly firstIndex?: () => number
+  readonly valueAt: (index: number) => unknown
+}
+
+type SeriesDataApi = {
+  readonly bars: () => SeriesBarsApi
+}
+
+type SeriesCapableChart = ExportCapableChart & {
+  readonly getSeries?: () => { readonly data: () => SeriesDataApi }
+}
+
+const SERIES_COLUMNS = ["time", "open", "high", "low", "close", "volume"] as const
+
+// The chart's in-memory series rows are [time, open, high, low, close, volume].
+// Unlike exportData this path has no plan gate, so it serves as the fallback
+// when TradingView rejects the export (e.g. "Data export is not supported").
+const readSeriesRows = (
+  chart: SeriesCapableChart,
+): ReadonlyArray<ReadonlyArray<number | null>> => {
+  if (typeof chart.getSeries !== "function") {
+    throw new Error("series_unavailable")
+  }
+  const bars = chart.getSeries().data().bars()
+  const first = typeof bars.firstIndex === "function" ? bars.firstIndex() : 0
+  const rows: Array<ReadonlyArray<number | null>> = []
+  const size = bars.size()
+  for (let index = first; index < first + size; index += 1) {
+    const value = bars.valueAt(index)
+    if (!Array.isArray(value)) {
+      continue
+    }
+    rows.push(
+      value
+        .slice(0, SERIES_COLUMNS.length)
+        .map((cell) => (typeof cell === "number" && Number.isFinite(cell) ? cell : null)),
+    )
+  }
+  if (rows.length === 0) {
+    throw new Error("series_empty")
+  }
+  return rows
+}
+
+const describeThrown = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error)
+
 const publishPageBars = async (requestId: string): Promise<void> => {
   const base: Omit<PageBarsPayload, "error"> = {
     requestId,
@@ -118,25 +167,45 @@ const publishPageBars = async (requestId: string): Promise<void> => {
     if (api === undefined) {
       throw new Error("tradingview_api_unavailable")
     }
-    const chart = api.activeChart() as ExportCapableChart
-    if (typeof chart.exportData !== "function") {
-      throw new Error("export_data_unavailable")
+    const chart = api.activeChart() as SeriesCapableChart
+    let columns: readonly string[] | null = null
+    let rows: ReadonlyArray<ReadonlyArray<number | null>> | null = null
+    let exportError: string | null = null
+    if (typeof chart.exportData === "function") {
+      try {
+        const result = await chart.exportData({
+          includeTime: true,
+          includeSeries: true,
+          includedStudies: "all",
+        })
+        columns = result.schema.map(columnTitle)
+        rows = result.data
+      } catch (error) {
+        exportError = describeThrown(error)
+      }
     }
-    const result = await chart.exportData({
-      includeTime: true,
-      includeSeries: true,
-      includedStudies: "all",
-    })
+    if (rows === null || columns === null) {
+      try {
+        rows = readSeriesRows(chart)
+        columns = SERIES_COLUMNS
+      } catch (error) {
+        throw new Error(
+          exportError === null
+            ? describeThrown(error)
+            : `${exportError} / ${describeThrown(error)}`,
+        )
+      }
+    }
     detail = {
       requestId,
       symbol: chart.symbol(),
       timeframe: chart.resolution(),
-      columns: result.schema.map(columnTitle),
-      rows: result.data,
+      columns: [...columns],
+      rows,
       error: null,
     }
   } catch (error) {
-    detail = { ...base, error: error instanceof Error ? error.message : "export_failed" }
+    detail = { ...base, error: describeThrown(error) }
   }
   document.dispatchEvent(new CustomEvent<PageBarsPayload>(PAGE_BARS_EVENT, { detail }))
 }
