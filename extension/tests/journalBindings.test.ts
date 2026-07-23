@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { bindDraftAutosave, handleJournalKeydown } from "../src/journalBindings"
+import { bindDraftAutosave, guardOverlayKeydown, handleJournalKeydown } from "../src/journalBindings"
 
 class FakeField {
   private inputListener: ((event: Event) => void) | null = null
@@ -91,5 +91,63 @@ describe("journal input bindings", () => {
     // Then
     expect(submissions).toBe(1)
     expect(prevented).toBe(true)
+  })
+
+  test("overlay key guard stops propagation so page hotkeys never fire", () => {
+    // Given: a plain character key pressed inside the overlay.
+    let stopped = false
+    const root = {
+      classList: { contains: () => false },
+      querySelector: () => null,
+    }
+    const event = {
+      isTrusted: true,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      key: "1",
+      preventDefault: () => {},
+      stopPropagation: () => {
+        stopped = true
+      },
+    }
+
+    // When
+    guardOverlayKeydown(event, root as HTMLElement, { submit: async () => {} })
+
+    // Then: the event must not reach TradingView's document-level handlers.
+    expect(stopped).toBe(true)
+  })
+
+  test("overlay key guard still submits on Ctrl+Enter", () => {
+    // Given
+    let submissions = 0
+    let stopped = false
+    const root = {
+      classList: { contains: (value: string) => value === "fj-sheet-open" },
+      querySelector: () => ({ disabled: false }),
+    }
+    const event = {
+      isTrusted: true,
+      metaKey: false,
+      ctrlKey: true,
+      shiftKey: false,
+      key: "Enter",
+      preventDefault: () => {},
+      stopPropagation: () => {
+        stopped = true
+      },
+    }
+
+    // When
+    guardOverlayKeydown(event, root as HTMLElement, {
+      submit: async () => {
+        submissions += 1
+      },
+    })
+
+    // Then
+    expect(submissions).toBe(1)
+    expect(stopped).toBe(true)
   })
 })

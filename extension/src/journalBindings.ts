@@ -135,6 +135,17 @@ export const handleJournalKeydown = (
   }
 }
 
+type OverlayKeyGuardEvent = JournalKeyEvent & Pick<KeyboardEvent, "stopPropagation">
+
+export const guardOverlayKeydown = (
+  event: OverlayKeyGuardEvent,
+  root: HTMLElement,
+  workflow: Pick<CaptureWorkflow, "submit">,
+): void => {
+  handleJournalKeydown(event, root, workflow)
+  event.stopPropagation()
+}
+
 export const bindJournalChrome = (
   root: HTMLElement,
   workflow: CaptureWorkflow,
@@ -147,6 +158,11 @@ export const bindJournalChrome = (
     if (event.isTrusted) void draft.flush().then(() => closeSheet(root))
   })
   bindUtilityActionButtons(root, workflow)
+  // TradingView's document-level hotkeys steal digits (interval dialog) and
+  // backspace from the overlay fields — keyboard events must not leave the overlay.
+  root.addEventListener("keydown", (event) => guardOverlayKeydown(event, root, workflow))
+  root.addEventListener("keypress", (event) => event.stopPropagation())
+  root.addEventListener("keyup", (event) => event.stopPropagation())
   document.addEventListener("keydown", (event) => handleJournalKeydown(event, root, workflow))
   chrome.runtime.onMessage.addListener((message: unknown) => {
     if (typeof message !== "object" || message === null || !("kind" in message)) return
