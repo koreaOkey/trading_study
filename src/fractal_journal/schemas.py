@@ -137,6 +137,30 @@ class CrossProbabilityEstimate(BaseModel):
     return_sample_bars: int = Field(ge=1)
 
 
+class BreakoutProbabilityEstimate(BaseModel):
+    """Monte Carlo estimate of closing above each MA for confirm_bars in a row.
+
+    A breakout counts only when the simulated close finishes above the
+    (co-simulated, moving) MA for confirm_bars consecutive bars within the
+    horizon. Volumes are resampled in pairs with their bar returns so the
+    VWMA keeps the symbol's own return-volume relationship. Descriptive
+    statistics under a stated assumption — not a forecast or instruction.
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    schema_version: Literal["breakout_probability.v1"] = "breakout_probability.v1"
+    method: Literal["bootstrap_monte_carlo"] = "bootstrap_monte_carlo"
+    horizon_bars: int = Field(ge=1)
+    confirm_bars: int = Field(ge=1)
+    paths: int = Field(ge=1)
+    sma50_pct: Decimal | None = None
+    sma200_pct: Decimal | None = None
+    vwma100_pct: Decimal | None = None
+    all_above_pct: Decimal | None = None
+    return_sample_bars: int = Field(ge=1)
+
+
 class MaCrossoverThresholds(BaseModel):
     """Deterministic structure-maintenance levels for the next completed bars.
 
@@ -156,6 +180,7 @@ class MaCrossoverThresholds(BaseModel):
     vwma100_hold_min_close: Decimal | None = None
     structure_projection: tuple[ThresholdProjectionPoint, ...] = ()
     cross_probability: CrossProbabilityEstimate | None = None
+    breakout_probability: BreakoutProbabilityEstimate | None = None
 
 
 class MaCrossoverEvidence(BaseModel):

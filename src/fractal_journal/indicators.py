@@ -1,5 +1,6 @@
 import random
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from hashlib import sha256
@@ -9,6 +10,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from fractal_journal.provider import OhlcvBar
 from fractal_journal.schemas import (
+    BreakoutProbabilityEstimate,
     CrossProbabilityEstimate,
     EvidenceDataStatus,
     GapTrend,
@@ -28,6 +30,7 @@ PROBABILITY_HORIZON_BARS: Final = 30  # rule expiry_bars와 정합
 PROBABILITY_PATHS: Final = 2_000
 PROBABILITY_MIN_RETURN_SAMPLE: Final = 60
 PROBABILITY_MAX_RETURN_SAMPLE: Final = 250
+BREAKOUT_CONFIRM_BARS: Final = 3
 READY_PROVIDER_STATUSES: Final = frozenset({"ok", "ready"})
 
 
@@ -136,60 +139,156 @@ def _project_structure_line(
     return tuple(points)
 
 
-def _estimate_cross_probability(
-    closes: Sequence[Decimal],
-    crossed: bool,
-) -> CrossProbabilityEstimate | None:
-    """Bootstrap Monte Carlo on the symbol's own recent bar returns.
+def _probability_pct(successes: int) -> Decimal:
+    return (Decimal(successes) / Decimal(PROBABILITY_PATHS) * PERCENT).quantize(
+        Decimal("0.1")
+    )
 
+
+@dataclass(frozen=True, slots=True)
+class _SimulationBase:
+    pairs: list[tuple[float, float]]
+    closes: list[float]
+    volumes: list[float]
+    sums: tuple[float, float, float, float]
+    crossed: bool
+    vwma_available: bool
+
+
+def _run_paths(
+    rng: random.Random,
+    base: _SimulationBase,
+) -> tuple[int, int, int, int, int]:
+    pairs = base.pairs
+    crossed = base.crossed
+    vwma_available = base.vwma_available
+    cross_successes = 0
+    hit_50 = hit_200 = hit_vwma = hit_all = 0
+    for _ in range(PROBABILITY_PATHS):
+        path_closes = list(base.closes)
+        path_volumes = list(base.volumes)
+        sum_50, sum_200, sum_pv, sum_v = base.sums
+        survived = True
+        reached = False
+        run_50 = run_200 = run_vwma = run_all = 0
+        path_50 = path_200 = path_vwma = path_all = False
+        for _ in range(PROBABILITY_HORIZON_BARS):
+            bar_return, bar_volume = pairs[rng.randrange(len(pairs))]
+            next_close = path_closes[-1] * (1.0 + bar_return)
+            sum_50 += next_close - path_closes[-SMA_50_PERIOD]
+            sum_200 += next_close - path_closes[-SMA_200_PERIOD]
+            sum_pv += (
+                next_close * bar_volume
+                - path_closes[-VWMA_100_PERIOD] * path_volumes[-VWMA_100_PERIOD]
+            )
+            sum_v += bar_volume - path_volumes[-VWMA_100_PERIOD]
+            path_closes.append(next_close)
+            path_volumes.append(bar_volume)
+
+            sma_50_now = sum_50 / SMA_50_PERIOD
+            sma_200_now = sum_200 / SMA_200_PERIOD
+            if sma_50_now >= sma_200_now:
+                reached = True
+            else:
+                survived = False
+
+            above_50 = next_close > sma_50_now
+            above_200 = next_close > sma_200_now
+            above_vwma = vwma_available and sum_v > 0 and next_close > sum_pv / sum_v
+            run_50 = run_50 + 1 if above_50 else 0
+            run_200 = run_200 + 1 if above_200 else 0
+            run_vwma = run_vwma + 1 if above_vwma else 0
+            run_all = run_all + 1 if (above_50 and above_200 and above_vwma) else 0
+            path_50 = path_50 or run_50 >= BREAKOUT_CONFIRM_BARS
+            path_200 = path_200 or run_200 >= BREAKOUT_CONFIRM_BARS
+            path_vwma = path_vwma or run_vwma >= BREAKOUT_CONFIRM_BARS
+            path_all = path_all or run_all >= BREAKOUT_CONFIRM_BARS
+        if (crossed and survived) or (not crossed and reached):
+            cross_successes += 1
+        hit_50 += path_50
+        hit_200 += path_200
+        hit_vwma += path_vwma
+        hit_all += path_all
+    return cross_successes, hit_50, hit_200, hit_vwma, hit_all
+
+
+def _estimate_probabilities(
+    closes: Sequence[Decimal],
+    volumes: Sequence[Decimal],
+    crossed: bool,
+) -> tuple[CrossProbabilityEstimate | None, BreakoutProbabilityEstimate | None]:
+    """Bootstrap Monte Carlo on the symbol's own recent (return, volume) pairs.
+
+    One shared path set answers both questions: whether the 50/200 cross is
+    reached (pre-cross) or survives (post-cross), and whether the close
+    finishes above each co-simulated MA for BREAKOUT_CONFIRM_BARS in a row.
     Seeded from the input closes so identical evidence always yields the
-    identical estimate (reproducible reviews, cache-friendly).
+    identical estimates (reproducible reviews, cache-friendly).
     """
     if len(closes) < SMA_200_PERIOD + 1:
-        return None
+        return None, None
     history = [float(value) for value in closes]
-    sample = history[-(PROBABILITY_MAX_RETURN_SAMPLE + 1) :]
-    returns = [
-        sample[index] / sample[index - 1] - 1.0
-        for index in range(1, len(sample))
-        if sample[index - 1] > 0
+    history_volumes = [float(value) for value in volumes]
+    sample_closes = history[-(PROBABILITY_MAX_RETURN_SAMPLE + 1) :]
+    sample_volumes = history_volumes[-(PROBABILITY_MAX_RETURN_SAMPLE + 1) :]
+    pairs = [
+        (sample_closes[index] / sample_closes[index - 1] - 1.0, sample_volumes[index])
+        for index in range(1, len(sample_closes))
+        if sample_closes[index - 1] > 0
     ]
-    if len(returns) < PROBABILITY_MIN_RETURN_SAMPLE:
-        return None
+    if len(pairs) < PROBABILITY_MIN_RETURN_SAMPLE:
+        return None, None
 
     seed_material = ",".join(f"{value:.6f}" for value in history[-200:])
     seed = int(sha256(seed_material.encode()).hexdigest()[:12], 16)
     rng = random.Random(seed)  # noqa: S311 — simulation sampling, not cryptography
-    successes = 0
-    base = history[-SMA_200_PERIOD:]
-    base_sum_50 = sum(base[-SMA_50_PERIOD:])
-    base_sum_200 = sum(base)
-    for _ in range(PROBABILITY_PATHS):
-        combined = list(base)
-        sum_50 = base_sum_50
-        sum_200 = base_sum_200
-        survived = True
-        reached = False
-        for _ in range(PROBABILITY_HORIZON_BARS):
-            next_close = combined[-1] * (1.0 + rng.choice(returns))
-            sum_50 += next_close - combined[-SMA_50_PERIOD]
-            sum_200 += next_close - combined[-SMA_200_PERIOD]
-            combined.append(next_close)
-            if sum_50 / SMA_50_PERIOD >= sum_200 / SMA_200_PERIOD:
-                reached = True
-            else:
-                survived = False
-        if (crossed and survived) or (not crossed and reached):
-            successes += 1
 
-    probability = Decimal(successes) / Decimal(PROBABILITY_PATHS) * PERCENT
-    return CrossProbabilityEstimate(
+    base_closes = history[-SMA_200_PERIOD:]
+    base_volumes = history_volumes[-SMA_200_PERIOD:]
+    base_sum_50 = sum(base_closes[-SMA_50_PERIOD:])
+    base_sum_200 = sum(base_closes)
+    base_sum_pv = sum(
+        close * volume
+        for close, volume in zip(
+            base_closes[-VWMA_100_PERIOD:],
+            base_volumes[-VWMA_100_PERIOD:],
+            strict=True,
+        )
+    )
+    base_sum_v = sum(base_volumes[-VWMA_100_PERIOD:])
+    vwma_available = base_sum_v > 0
+
+    counts = _run_paths(
+        rng,
+        _SimulationBase(
+            pairs=pairs,
+            closes=base_closes,
+            volumes=base_volumes,
+            sums=(base_sum_50, base_sum_200, base_sum_pv, base_sum_v),
+            crossed=crossed,
+            vwma_available=vwma_available,
+        ),
+    )
+    cross_successes, hit_50, hit_200, hit_vwma, hit_all = counts
+
+    cross = CrossProbabilityEstimate(
         target="hold_cross" if crossed else "reach_cross",
         horizon_bars=PROBABILITY_HORIZON_BARS,
         paths=PROBABILITY_PATHS,
-        probability_pct=probability.quantize(Decimal("0.1")),
-        return_sample_bars=len(returns),
+        probability_pct=_probability_pct(cross_successes),
+        return_sample_bars=len(pairs),
     )
+    breakout = BreakoutProbabilityEstimate(
+        horizon_bars=PROBABILITY_HORIZON_BARS,
+        confirm_bars=BREAKOUT_CONFIRM_BARS,
+        paths=PROBABILITY_PATHS,
+        sma50_pct=_probability_pct(hit_50),
+        sma200_pct=_probability_pct(hit_200),
+        vwma100_pct=_probability_pct(hit_vwma) if vwma_available else None,
+        all_above_pct=_probability_pct(hit_all) if vwma_available else None,
+        return_sample_bars=len(pairs),
+    )
+    return cross, breakout
 
 
 def _calculate_thresholds(
@@ -208,6 +307,7 @@ def _calculate_thresholds(
     convergence_min = cross_min = None
     projection: tuple[ThresholdProjectionPoint, ...] = ()
     cross_probability = None
+    breakout_probability = None
     basis = "convergence_hold"
     if len(closes) >= SMA_200_PERIOD and sma_200_value is not None:
         crossed = sma_50_value >= sma_200_value
@@ -217,7 +317,9 @@ def _calculate_thresholds(
         ).quantize(TWO_DP)
         cross_min = _structure_threshold(closes, "cross_hold").quantize(TWO_DP)
         projection = _project_structure_line(closes, basis)
-        cross_probability = _estimate_cross_probability(closes, crossed)
+        cross_probability, breakout_probability = _estimate_probabilities(
+            closes, volumes, crossed
+        )
 
     vwma_hold = None
     if len(closes) >= VWMA_100_PERIOD:
@@ -239,6 +341,7 @@ def _calculate_thresholds(
         vwma100_hold_min_close=vwma_hold,
         structure_projection=projection,
         cross_probability=cross_probability,
+        breakout_probability=breakout_probability,
     )
 
 

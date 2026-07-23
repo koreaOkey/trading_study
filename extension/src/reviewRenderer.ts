@@ -182,6 +182,31 @@ const renderThresholds = (evidence: MaCrossoverEvidence | null): HTMLElement => 
     )
   }
 
+  const breakout = thresholds.breakout_probability ?? null
+  if (breakout !== null) {
+    const parts = [
+      ["SMA50", breakout.sma50_pct],
+      ["SMA200", breakout.sma200_pct],
+      ["VWMA100", breakout.vwma100_pct],
+    ]
+      .filter((entry): entry is [string, string] => entry[1] !== null)
+      .map(([label, value]) => `${label} ${formatPercent(value)}`)
+    const allAbove =
+      breakout.all_above_pct === null
+        ? ""
+        : ` · 셋 다 위 ${formatPercent(breakout.all_above_pct)}`
+    if (parts.length > 0) {
+      block.append(
+        createElement(
+          "div",
+          "fj-probability-line",
+          `돌파 확률(${breakout.horizon_bars}봉 내 종가 ${breakout.confirm_bars}봉 연속 유지): ` +
+            `${parts.join(" · ")}${allAbove}`,
+        ),
+      )
+    }
+  }
+
   const secondaryLines: Array<readonly [string, string | null]> = [
     [
       crossReached ? "수렴 유지" : "크로스 달성",

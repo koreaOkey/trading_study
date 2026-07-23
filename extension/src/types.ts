@@ -188,6 +188,21 @@ export const crossProbabilitySchema = z.object({
 
 export type CrossProbability = z.infer<typeof crossProbabilitySchema>
 
+export const breakoutProbabilitySchema = z.object({
+  schema_version: z.literal("breakout_probability.v1"),
+  method: z.literal("bootstrap_monte_carlo"),
+  horizon_bars: z.number().int().min(1),
+  confirm_bars: z.number().int().min(1),
+  paths: z.number().int().min(1),
+  sma50_pct: nullableDecimalSchema,
+  sma200_pct: nullableDecimalSchema,
+  vwma100_pct: nullableDecimalSchema,
+  all_above_pct: nullableDecimalSchema,
+  return_sample_bars: z.number().int().min(1),
+})
+
+export type BreakoutProbability = z.infer<typeof breakoutProbabilitySchema>
+
 export const thresholdProjectionPointSchema = z.object({
   bar_offset: z.number().int().min(1),
   min_close: z.string(),
@@ -202,6 +217,7 @@ export const maCrossoverThresholdsSchema = z.object({
   vwma100_hold_min_close: nullableDecimalSchema,
   structure_projection: z.array(thresholdProjectionPointSchema),
   cross_probability: crossProbabilitySchema.nullable().optional().default(null),
+  breakout_probability: breakoutProbabilitySchema.nullable().optional().default(null),
 })
 
 export type MaCrossoverThresholds = z.infer<typeof maCrossoverThresholdsSchema>
