@@ -121,7 +121,9 @@ const postCapture = async (
       headers: headersFor(apiToken),
       json: payload,
       retry: { limit: 1 },
-      timeout: 5_000,
+      // Multi-MB PNG screenshots can take >5s when the loopback port is an
+      // SSH tunnel over a relayed (DERP) Tailscale link — keep this generous.
+      timeout: 60_000,
     })
     .json<unknown>()
   const parsed = captureResponseSchema.parse(rawResponse)
