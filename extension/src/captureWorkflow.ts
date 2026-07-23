@@ -121,16 +121,16 @@ export const createCaptureWorkflow = (
     }
   }
 
-  const fail = (message: string, showReviewError: boolean): void => {
+  const fail = (message: string, _showReviewError = true): void => {
     dependencies.setPhase(root, "failed")
     dependencies.setState(root, {
       status: "error",
       message,
       warnings: captureWarnings,
     })
-    if (showReviewError) {
-      dependencies.renderReviewError(root, message)
-    }
+    // The dock status line is easy to miss while the sheet is open — always
+    // surface the failure inside the sheet as well.
+    dependencies.renderReviewError(root, message)
   }
 
   const runReview = async (id: string, settings: ExtensionSettings): Promise<void> => {
@@ -160,6 +160,11 @@ export const createCaptureWorkflow = (
 
   const submit = async (): Promise<void> => {
     if (inFlight) {
+      dependencies.setState(root, {
+        status: "saving",
+        message: "이미 처리 중입니다 — 잠시 기다려주세요",
+        warnings: captureWarnings,
+      })
       return
     }
     inFlight = true

@@ -99,7 +99,13 @@ export const bindSubmitValidity = (root: HTMLElement): (() => void) => {
     if (submit === null) return
     const phase = submit.dataset["phase"] ?? "idle"
     const inFlight = phase === "saving" || phase === "reviewing"
-    submit.disabled = inFlight || Array.from(requiredFields).some((field) => field.value.trim().length === 0)
+    const emptyRequired = Array.from(requiredFields).some(
+      (field) => field.value.trim().length === 0,
+    )
+    submit.disabled = inFlight || emptyRequired
+    submit.title = emptyRequired
+      ? "종목코드·KIS 종목코드·타임프레임·판단 시각을 모두 입력해야 제출할 수 있습니다"
+      : ""
   }
   requiredFields.forEach((field) => field.addEventListener("input", sync))
   if (submit !== null) {
