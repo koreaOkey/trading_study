@@ -53,6 +53,14 @@ export type BarCoverageMessage = {
   readonly timeframe: string
 }
 
+export type RecentReviewsMessage = {
+  readonly kind: "get-recent-reviews"
+  readonly settings: ExtensionSettings
+  readonly symbol: string
+  readonly timeframe: string
+  readonly limit: number
+}
+
 export type CaptureMessage =
   | CheckHealthMessage
   | SaveCaptureMessage
@@ -60,6 +68,7 @@ export type CaptureMessage =
   | ReviewCaptureMessage
   | RegisterBarSeriesMessage
   | BarCoverageMessage
+  | RecentReviewsMessage
 
 export type HealthMessageResponse =
   | { readonly ok: true; readonly status: number }
@@ -122,6 +131,26 @@ export const barCoverageMessageResponseSchema = z.discriminatedUnion("ok", [
 
 export type BarCoverageMessageResponse = z.infer<typeof barCoverageMessageResponseSchema>
 
+export const reviewHistoryItemSchema = z.object({
+  capture_id: z.string(),
+  created_at: z.string(),
+  symbol: z.string(),
+  timeframe: z.string(),
+  decision_time_exchange: z.string(),
+  hypothesis: z.string(),
+  decision_note: z.string(),
+  review: decisionReviewResultSchema.nullable(),
+})
+
+export type ReviewHistoryItem = z.infer<typeof reviewHistoryItemSchema>
+
+export const recentReviewsMessageResponseSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true), items: z.array(reviewHistoryItemSchema) }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+])
+
+export type RecentReviewsMessageResponse = z.infer<typeof recentReviewsMessageResponseSchema>
+
 const settingsSchema = z.object({ apiBaseUrl: z.string(), apiToken: z.string() })
 
 export const extensionMessageSchema = z.discriminatedUnion("kind", [
@@ -154,5 +183,12 @@ export const extensionMessageSchema = z.discriminatedUnion("kind", [
     settings: settingsSchema,
     symbol: z.string().min(1).max(32),
     timeframe: z.string().min(1).max(16),
+  }),
+  z.object({
+    kind: z.literal("get-recent-reviews"),
+    settings: settingsSchema,
+    symbol: z.string().min(1).max(32),
+    timeframe: z.string().min(1).max(16),
+    limit: z.number().int().min(1).max(50),
   }),
 ])

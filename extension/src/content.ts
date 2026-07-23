@@ -12,6 +12,7 @@ import {
 import { fallbackCandidateMetadata } from "./metadata"
 import type { CandidateMetadata } from "./metadata"
 import { applyCandidate, openSheet, renderOverlay, ROOT_ID } from "./overlayView"
+import { bindReviewHistory } from "./reviewHistory"
 import { restoreDraft } from "./storage"
 import { bindTradingViewBridge, requestFreshPageMetadata } from "./tradingViewBridge"
 
@@ -43,6 +44,7 @@ const mount = async (): Promise<void> => {
   const syncSubmitValidity = bindSubmitValidity(root)
   bindJournalChrome(root, workflow, draft)
   csvRegistration = bindCsvRegistration(root, workflow)
+  bindReviewHistory(root)
   document.documentElement.append(host)
   setState(root, initialState)
   await restoreDraft(root)

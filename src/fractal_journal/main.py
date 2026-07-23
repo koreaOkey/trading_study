@@ -108,6 +108,7 @@ def _register_routes(app: FastAPI, services: AppServices) -> None:
     _register_capture_routes(app, services)
     _register_score_routes(app, services)
     _register_bar_series_routes(app, services)
+    _register_review_history_routes(app, services)
 
 
 def _register_core_routes(app: FastAPI, services: AppServices) -> None:
@@ -247,6 +248,64 @@ class BarSeriesRegisterResponse(BaseModel):
 
     coverage: BarSeriesCoverage
     reviews: tuple[DecisionReviewResult, ...]
+
+
+class ReviewHistoryItem(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    capture_id: str
+    created_at: str
+    symbol: str
+    timeframe: str
+    decision_time_exchange: str
+    hypothesis: str
+    decision_note: str
+    review: DecisionReviewResult | None = None
+
+
+class ReviewHistoryResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    items: tuple[ReviewHistoryItem, ...]
+
+
+def _register_review_history_routes(app: FastAPI, services: AppServices) -> None:
+    @app.get("/api/reviews")
+    async def list_reviews(
+        _: Annotated[None, Depends(_check_auth(services))],
+        symbol: Annotated[str | None, Query(max_length=32)] = None,
+        timeframe: Annotated[str | None, Query(max_length=16)] = None,
+        limit: Annotated[int, Query(ge=1, le=50)] = 10,
+    ) -> ReviewHistoryResponse:
+        items: list[ReviewHistoryItem] = []
+        for capture in services.store.list_captures(limit=500):
+            confirmed = capture.confirmed
+            if symbol is not None and symbol not in (
+                confirmed.provider_symbol,
+                confirmed.symbol,
+            ):
+                continue
+            if timeframe is not None and confirmed.timeframe != timeframe:
+                continue
+            items.append(
+                ReviewHistoryItem(
+                    capture_id=str(capture.id),
+                    created_at=capture.created_at.isoformat(),
+                    symbol=confirmed.symbol,
+                    timeframe=confirmed.timeframe,
+                    decision_time_exchange=confirmed.decision_time_exchange,
+                    hypothesis=(
+                        capture.decision.value
+                        if capture.decision is not None
+                        else capture.hypothesis.value
+                    ),
+                    decision_note=capture.effective_decision_note,
+                    review=services.store.load_decision_review(str(capture.id)),
+                )
+            )
+            if len(items) >= limit:
+                break
+        return ReviewHistoryResponse(items=tuple(items))
 
 
 def _review_needs_rerun(stored: DecisionReviewResult) -> bool:

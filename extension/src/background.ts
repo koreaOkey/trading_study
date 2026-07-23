@@ -6,10 +6,15 @@ import {
   failedCaptureResponse,
   REVIEW_HTTP_TIMEOUT,
 } from "./backgroundCapture"
-import { barSeriesCoverageSchema, extensionMessageSchema } from "./messageProtocol"
+import {
+  barSeriesCoverageSchema,
+  extensionMessageSchema,
+  reviewHistoryItemSchema,
+} from "./messageProtocol"
 import type {
   BarCoverageMessageResponse,
   HealthMessageResponse,
+  RecentReviewsMessageResponse,
   RegisterBarSeriesMessageResponse,
   ReviewCaptureMessageResponse,
   SaveCaptureMessageResponse,
@@ -221,6 +226,29 @@ const getBarCoverage = async (
   return { ok: true, registered: parsed.registered, coverage: parsed.coverage }
 }
 
+const recentReviewsResponseSchema = z.object({
+  items: z.array(reviewHistoryItemSchema),
+})
+
+const getRecentReviews = async (
+  symbol: string,
+  timeframe: string,
+  limit: number,
+  apiBaseUrl: string,
+  apiToken: string,
+): Promise<RecentReviewsMessageResponse> => {
+  requireLoopback(apiBaseUrl)
+  const rawResponse = await ky
+    .get(`${apiBaseUrl}/api/reviews`, {
+      headers: headersFor(apiToken),
+      searchParams: { symbol, timeframe, limit },
+      retry: { limit: 1 },
+      timeout: 10_000,
+    })
+    .json<unknown>()
+  return { ok: true, items: recentReviewsResponseSchema.parse(rawResponse).items }
+}
+
 const reviewCapture = async (
   captureId: string,
   apiBaseUrl: string,
@@ -292,6 +320,17 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
             await getBarCoverage(
               parsed.data.symbol,
               parsed.data.timeframe,
+              settings.apiBaseUrl,
+              settings.apiToken,
+            ),
+          )
+          return
+        case "get-recent-reviews":
+          sendResponse(
+            await getRecentReviews(
+              parsed.data.symbol,
+              parsed.data.timeframe,
+              parsed.data.limit,
               settings.apiBaseUrl,
               settings.apiToken,
             ),

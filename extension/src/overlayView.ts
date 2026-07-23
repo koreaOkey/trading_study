@@ -77,6 +77,13 @@ const overlayMarkup = (): string => `
         <div data-review></div>
         <button class="fj-retry-review" type="button" data-retry-review hidden>Retry review</button>
       </section>
+      <section class="fj-history-section">
+        <div class="fj-history-header">
+          <span class="fj-section-title">Recent reviews</span>
+          <button class="fj-history-load" type="button" data-load-history>Load</button>
+        </div>
+        <div class="fj-history-list" data-history-list></div>
+      </section>
     </div>
     <div class="fj-actions">
       <button class="fj-submit" type="button" data-submit-review data-phase="idle">Submit for review</button>

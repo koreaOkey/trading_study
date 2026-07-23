@@ -329,3 +329,51 @@ def test_bar_series_requires_auth(tmp_path: Path) -> None:
             json={"symbol": "214450", "timeframe": "240", "csv_text": "time,open\n"},
         )
         assert rejected.status_code == 401
+
+
+def test_reviews_endpoint_lists_recent_captures(tmp_path: Path) -> None:
+    # Given: one capture, reviewed via CSV registration.
+    token = tmp_path.name
+    reviewer = RecordingReviewer()
+    app = create_app(
+        _settings(tmp_path, token),
+        provider=FixtureOhlcvProvider(),
+        reviewer=reviewer,
+    )
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/captures", json=_capture_payload(), headers=_auth(token)
+        )
+        capture_id = str(created.json()["capture"]["id"])
+        rows = [
+            *_session_rows(210),
+            "2026-07-09T09:00:00+09:00,2000,2010,1990,2005,1500",
+        ]
+        _ = client.post(
+            "/api/bar-series",
+            json={"symbol": "214450", "timeframe": "240", "csv_text": _csv(rows)},
+            headers=_auth(token),
+        )
+
+        # When: the review history is requested for that chart.
+        response = client.get(
+            "/api/reviews",
+            params={"symbol": "214450", "timeframe": "240", "limit": 5},
+            headers=_auth(token),
+        )
+
+        # Then: the capture appears with its stored review attached.
+        assert response.status_code == 200
+        items = response.json()["items"]
+        assert len(items) == 1
+        assert items[0]["capture_id"] == capture_id
+        assert items[0]["hypothesis"] == "golden_cross_expected"
+        assert items[0]["review"]["status"] == "ready"
+
+        # And: filtering by another chart returns nothing.
+        other = client.get(
+            "/api/reviews",
+            params={"symbol": "005930", "timeframe": "240"},
+            headers=_auth(token),
+        )
+        assert other.json()["items"] == []
