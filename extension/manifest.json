@@ -3,11 +3,16 @@
   "name": "Fractal Replay Journal",
   "version": "0.1.0",
   "description": "Capture TradingView replay states into a local fractal journal.",
-  "permissions": ["activeTab", "storage", "tabs"],
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabs"
+  ],
   "host_permissions": [
     "https://*.tradingview.com/*",
     "http://127.0.0.1:8765/*",
-    "http://127.0.0.1:8766/*"
+    "http://127.0.0.1:8766/*",
+    "<all_urls>"
   ],
   "action": {
     "default_title": "Fractal Replay Journal"
@@ -22,14 +27,22 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://*.tradingview.com/*"],
-      "js": ["pageBridge.js"],
+      "matches": [
+        "https://*.tradingview.com/*"
+      ],
+      "js": [
+        "pageBridge.js"
+      ],
       "run_at": "document_idle",
       "world": "MAIN"
     },
     {
-      "matches": ["https://*.tradingview.com/*"],
-      "js": ["content.js"],
+      "matches": [
+        "https://*.tradingview.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ]

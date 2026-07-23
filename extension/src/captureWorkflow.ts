@@ -67,10 +67,15 @@ const initialWarnings: readonly WarningCode[] = [
 
 // After the extension is reloaded/updated, content scripts already injected in
 // open tabs lose their runtime and every sendMessage throws this error.
-export const describeWorkflowError = (message: string): string =>
-  message.includes("Extension context invalidated")
-    ? "확장이 업데이트됨 — 이 탭을 새로고침하세요"
-    : message
+export const describeWorkflowError = (message: string): string => {
+  if (message.includes("Extension context invalidated")) {
+    return "확장이 업데이트됨 — 이 탭을 새로고침하세요"
+  }
+  if (message.includes("activeTab")) {
+    return "스크린샷 권한 없음 — 확장을 새로고침하거나 툴바의 확장 아이콘을 한 번 클릭한 뒤 다시 제출하세요"
+  }
+  return message
+}
 
 export const setWorkflowPhase = (root: HTMLElement, phase: WorkflowPhase): void => {
   const submit = root.querySelector<HTMLButtonElement>("[data-submit-review]")
