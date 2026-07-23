@@ -132,13 +132,25 @@ export const bindCsvRegistration = (
   const fileInput = root.querySelector<HTMLInputElement>("[data-csv-file]")
   let coverageCache: CoverageCache | null = null
   let lastBadgeState: CsvBadge["state"] = "unknown"
+  // The 750ms metadata poll re-renders the badge; operation statuses (extract
+  // progress, registration results, errors) must hold the line long enough to
+  // be read instead of being clobbered by the next poll tick.
+  let statusHeldUntil = 0
 
   const showBadge = (badge: CsvBadge): void => {
+    if (Date.now() < statusHeldUntil) {
+      return
+    }
     lastBadgeState = badge.state
     applyBadge(root, badge)
   }
 
-  const setStatus = (message: string, state: CsvBadge["state"] = "unknown"): void => {
+  const setStatus = (
+    message: string,
+    state: CsvBadge["state"] = "unknown",
+    holdMs = 20_000,
+  ): void => {
+    statusHeldUntil = Date.now() + holdMs
     if (status !== null) {
       status.textContent = message
       status.dataset["csvState"] = state
@@ -169,7 +181,7 @@ export const bindCsvRegistration = (
     try {
       const response = await getBarCoverage(await getSettings(), symbol, timeframe)
       if (!response.ok) {
-        setStatus(`CSV coverage check failed: ${response.error}`)
+        setStatus(`CSV coverage check failed: ${response.error}`, "unknown", 0)
         return
       }
       coverageCache = {
@@ -182,7 +194,7 @@ export const bindCsvRegistration = (
         coverageBadge(timeframe, decisionTime, response.registered, response.coverage),
       )
     } catch {
-      setStatus("CSV coverage check failed")
+      setStatus("CSV coverage check failed", "unknown", 0)
     }
   }
 
