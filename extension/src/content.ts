@@ -31,23 +31,29 @@ const mount = async (): Promise<void> => {
     if (refreshed !== null) candidate = applyCandidate(root, refreshed)
     return refreshed
   }
-  const workflow = createCaptureWorkflow({ root, getCandidate: () => candidate, refreshCandidate })
+  let csvRegistration: ReturnType<typeof bindCsvRegistration> | null = null
+  const workflow = createCaptureWorkflow({
+    root,
+    getCandidate: () => candidate,
+    refreshCandidate,
+    reviewImmediately: () => csvRegistration?.isEvidenceReady() ?? false,
+  })
   const draft = bindDraftAutosave(root)
   const syncHypothesis = bindHypothesis(root, draft)
   const syncSubmitValidity = bindSubmitValidity(root)
   bindJournalChrome(root, workflow, draft)
-  const csvRegistration = bindCsvRegistration(root, workflow)
+  csvRegistration = bindCsvRegistration(root, workflow)
   document.documentElement.append(host)
   setState(root, initialState)
   await restoreDraft(root)
   syncHypothesis()
   candidate = applyCandidate(root, candidate)
   syncSubmitValidity()
-  void csvRegistration.refresh()
+  void csvRegistration?.refresh()
   bindTradingViewBridge((nextCandidate) => {
     candidate = applyCandidate(root, nextCandidate)
     syncSubmitValidity()
-    void csvRegistration.refresh()
+    void csvRegistration?.refresh()
   })
   await bindDraggableOverlay(root)
   if (getInputValue(root, "symbol").length === 0) openSheet(root)

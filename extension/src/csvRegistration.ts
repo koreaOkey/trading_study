@@ -94,6 +94,7 @@ export const buildCsvText = (
 
 type CsvRegistrationController = {
   readonly refresh: () => Promise<void>
+  readonly isEvidenceReady: () => boolean
 }
 
 type CoverageCache = {
@@ -130,6 +131,12 @@ export const bindCsvRegistration = (
   const fileButton = root.querySelector<HTMLButtonElement>("[data-register-csv]")
   const fileInput = root.querySelector<HTMLInputElement>("[data-csv-file]")
   let coverageCache: CoverageCache | null = null
+  let lastBadgeState: CsvBadge["state"] = "unknown"
+
+  const showBadge = (badge: CsvBadge): void => {
+    lastBadgeState = badge.state
+    applyBadge(root, badge)
+  }
 
   const setStatus = (message: string, state: CsvBadge["state"] = "unknown"): void => {
     if (status !== null) {
@@ -145,15 +152,14 @@ export const bindCsvRegistration = (
       return
     }
     if (parseTimeframeMinutes(timeframe) === null) {
-      applyBadge(root, coverageBadge(timeframe, decisionTime, false, null))
+      showBadge(coverageBadge(timeframe, decisionTime, false, null))
       return
     }
     const key = `${symbol}|${timeframe}`
     if (coverageCache !== null && coverageCache.key === key) {
       // The replay cursor updates decisionTime every tick; recompute the badge
       // locally and only re-ask the backend once the cache expires.
-      applyBadge(
-        root,
+      showBadge(
         coverageBadge(timeframe, decisionTime, coverageCache.registered, coverageCache.coverage),
       )
       if (Date.now() - coverageCache.at < COVERAGE_CACHE_MS) {
@@ -172,8 +178,7 @@ export const bindCsvRegistration = (
         registered: response.registered,
         coverage: response.coverage,
       }
-      applyBadge(
-        root,
+      showBadge(
         coverageBadge(timeframe, decisionTime, response.registered, response.coverage),
       )
     } catch {
@@ -253,5 +258,8 @@ export const bindCsvRegistration = (
     fileInput.value = ""
   })
 
-  return { refresh }
+  return {
+    refresh,
+    isEvidenceReady: () => lastBadgeState === "covered" || lastBadgeState === "not-needed",
+  }
 }

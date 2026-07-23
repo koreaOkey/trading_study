@@ -91,6 +91,7 @@ const makeWorkflow = (overrides: {
   readonly phases?: string[]
   readonly refreshCandidate?: () => Promise<CandidateMetadata | null>
   readonly onBuildCandidate?: (candidate: CandidateMetadata | undefined) => void
+  readonly reviewImmediately?: () => boolean
 } = {}) => {
   const root = new FakeRoot()
   let captureCalls = 0
@@ -105,6 +106,7 @@ const makeWorkflow = (overrides: {
         replayActive: true,
       }),
       refreshCandidate: overrides.refreshCandidate ?? (async () => null),
+      reviewImmediately: overrides.reviewImmediately,
     },
     {
       getSettings: async () => settings,
@@ -164,6 +166,24 @@ describe("submit for review workflow", () => {
 
     // Then
     expect(builtFrom).toEqual(freshCandidate)
+  })
+
+  test("reviews immediately when evidence is already available", async () => {
+    // Given: the chart's series is registered (or the timeframe is daily).
+    let rendered: DecisionReviewResult | null = null
+    const harness = makeWorkflow({
+      reviewImmediately: () => true,
+      onReview: (result) => {
+        rendered = result
+      },
+    })
+
+    // When
+    await harness.workflow.submit()
+
+    // Then: the review runs right after saving instead of waiting for a CSV.
+    expect(harness.reviewCalls()).toBe(1)
+    expect(rendered).toEqual(readyReview)
   })
 
   test("saves without reviewing and defers the review to CSV registration", async () => {

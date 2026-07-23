@@ -32,6 +32,10 @@ type CaptureWorkflowOptions = {
   readonly root: HTMLElement
   readonly getCandidate: () => CandidateMetadata
   readonly refreshCandidate: () => Promise<CandidateMetadata | null>
+  // Evidence already available (registered series covers this chart, or a
+  // KIS-native daily timeframe) — review right after saving instead of
+  // deferring to CSV registration, which would otherwise never fire.
+  readonly reviewImmediately?: () => boolean
 }
 
 export type CaptureWorkflowDependencies = {
@@ -192,6 +196,15 @@ export const createCaptureWorkflow = (
       }
       captureId = response.id
       captureWarnings = response.warnings
+      if (options.reviewImmediately?.() === true) {
+        dependencies.setState(root, {
+          status: "saved",
+          message: `Saved ${response.id}`,
+          warnings: response.warnings,
+        })
+        await runReview(response.id, settings)
+        return
+      }
       dependencies.setPhase(root, "ready")
       dependencies.setState(root, {
         status: "saved",
