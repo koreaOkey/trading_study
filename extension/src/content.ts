@@ -18,7 +18,7 @@ import { bindTradingViewBridge, requestFreshPageMetadata } from "./tradingViewBr
 
 const initialState: OverlayState = {
   status: "checking",
-  message: "Backend checking",
+  message: "백엔드 확인 중",
   warnings: ["provider_symbol_unconfirmed", "price_basis_unverified"],
 }
 

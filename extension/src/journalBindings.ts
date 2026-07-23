@@ -43,13 +43,13 @@ export const bindDraftAutosave = (
       timer = null
     }
     const currentRevision = revision
-    setDraftStatus("Saving draft...", "saving")
+    setDraftStatus("저장 중…", "saving")
     try {
       await dependencies.save(root)
-      if (currentRevision === revision) setDraftStatus("Draft saved automatically", "saved")
+      if (currentRevision === revision) setDraftStatus("자동 저장됨", "saved")
     } catch (error) {
       if (error instanceof Error) {
-        setDraftStatus("Draft could not be saved", "error")
+        setDraftStatus("저장 실패", "error")
         return
       }
       throw error
@@ -57,7 +57,7 @@ export const bindDraftAutosave = (
   }
   const schedule = (): void => {
     revision += 1
-    setDraftStatus("Unsaved changes", "pending")
+    setDraftStatus("변경 사항 저장 대기", "pending")
     if (timer !== null) dependencies.clearTimer(timer)
     timer = dependencies.scheduleTimer(() => void flush(), AUTOSAVE_DELAY_MS)
   }

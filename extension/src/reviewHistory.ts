@@ -1,36 +1,30 @@
 import { createElement, getInputValue } from "./dom"
+import { assessmentLabel, hypothesisLabel } from "./format"
 import type { ReviewHistoryItem } from "./messageProtocol"
 import { getRecentReviews } from "./messages"
 import { renderReview } from "./reviewRenderer"
 import { getSettings } from "./storage"
 
-const HYPOTHESIS_LABELS: Readonly<Record<string, string>> = {
-  golden_cross_expected: "Golden cross",
-  dead_cross_expected: "Dead cross",
-  uncertain: "Uncertain",
-  long: "Long",
-  short: "Short",
-  watch: "Watch",
-  skip: "Skip",
-}
-
 export type HistoryItemLabel = {
   readonly decision: string
   readonly hypothesis: string
   readonly assessment: string
+  readonly state: string
 }
 
 export const historyItemLabel = (item: ReviewHistoryItem): HistoryItemLabel => {
   const decision = item.decision_time_exchange.slice(0, 16).replace("T", " ")
-  const hypothesis = HYPOTHESIS_LABELS[item.hypothesis] ?? item.hypothesis
+  const hypothesis = hypothesisLabel(item.hypothesis)
   const review = item.review
-  const assessment =
+  const state =
     review === null
-      ? "review pending"
+      ? "pending"
       : review.status === "ready"
         ? (review.review?.overall_assessment ?? "ready")
         : "failed"
-  return { decision, hypothesis, assessment }
+  const assessment =
+    state === "pending" ? "리뷰 대기" : state === "failed" ? "실패" : assessmentLabel(state)
+  return { decision, hypothesis, assessment, state }
 }
 
 export const bindReviewHistory = (root: HTMLElement): void => {
@@ -43,7 +37,7 @@ export const bindReviewHistory = (root: HTMLElement): void => {
   const renderItems = (items: readonly ReviewHistoryItem[]): void => {
     if (items.length === 0) {
       list.replaceChildren(
-        createElement("div", "fj-history-empty", "No judgments recorded for this chart yet"),
+        createElement("div", "fj-history-empty", "이 차트에 기록된 판단이 없습니다"),
       )
       return
     }
@@ -53,7 +47,7 @@ export const bindReviewHistory = (root: HTMLElement): void => {
         const entry = document.createElement("button")
         entry.type = "button"
         entry.className = "fj-history-item"
-        entry.dataset["assessment"] = label.assessment
+        entry.dataset["assessment"] = label.state
         entry.append(
           createElement("span", "fj-history-time", label.decision),
           createElement("span", "fj-history-hypothesis", label.hypothesis),
@@ -62,12 +56,12 @@ export const bindReviewHistory = (root: HTMLElement): void => {
         const review = item.review
         if (review === null) {
           entry.disabled = true
-          entry.title = "Review runs when this chart's CSV is registered"
+          entry.title = "CSV 등록 시 리뷰가 실행됩니다"
         } else {
           entry.title = item.decision_note.slice(0, 300)
           entry.addEventListener("click", (event) => {
             if (event.isTrusted) {
-              renderReview(root, review)
+              renderReview(root, review, { hypothesis: item.hypothesis })
             }
           })
         }
@@ -83,7 +77,7 @@ export const bindReviewHistory = (root: HTMLElement): void => {
       return
     }
     button.disabled = true
-    button.textContent = "Loading…"
+    button.textContent = "불러오는 중…"
     try {
       const response = await getRecentReviews(await getSettings(), symbol, timeframe)
       if (!response.ok) {
@@ -96,12 +90,12 @@ export const bindReviewHistory = (root: HTMLElement): void => {
         createElement(
           "div",
           "fj-history-empty",
-          error instanceof Error ? error.message : "History unavailable",
+          error instanceof Error ? error.message : "목록을 불러올 수 없습니다",
         ),
       )
     } finally {
       button.disabled = false
-      button.textContent = "Load"
+      button.textContent = "불러오기"
     }
   }
 

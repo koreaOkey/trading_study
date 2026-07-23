@@ -199,7 +199,7 @@ describe("submit for review workflow", () => {
     expect(harness.reviewCalls()).toBe(0)
     expect(harness.workflow.lastCaptureId()).toBe("capture-1")
     expect(harness.root.classList.contains("fj-capture-hidden")).toBe(false)
-    expect(phases.some((entry) => entry.includes("CSV registration"))).toBe(true)
+    expect(phases.some((entry) => entry.includes("CSV 등록 후 리뷰"))).toBe(true)
   })
 
   test("ignores a second submit while capture is in flight", async () => {

@@ -69,7 +69,7 @@ const initialWarnings: readonly WarningCode[] = [
 // open tabs lose their runtime and every sendMessage throws this error.
 export const describeWorkflowError = (message: string): string =>
   message.includes("Extension context invalidated")
-    ? "Extension updated — reload this TradingView tab"
+    ? "확장이 업데이트됨 — 이 탭을 새로고침하세요"
     : message
 
 export const setWorkflowPhase = (root: HTMLElement, phase: WorkflowPhase): void => {
@@ -78,11 +78,11 @@ export const setWorkflowPhase = (root: HTMLElement, phase: WorkflowPhase): void 
     return
   }
   const labels: Readonly<Record<WorkflowPhase, string>> = {
-    idle: "Submit for review",
-    saving: "Saving capture...",
-    reviewing: "Reviewing with Hermes...",
-    ready: "Submit for review",
-    failed: "Submit for review",
+    idle: "리뷰 제출",
+    saving: "캡처 저장 중…",
+    reviewing: "Hermes 리뷰 중…",
+    ready: "리뷰 제출",
+    failed: "리뷰 제출",
   }
   submit.dataset["phase"] = phase
   submit.textContent = labels[phase]
@@ -137,7 +137,7 @@ export const createCaptureWorkflow = (
     dependencies.setPhase(root, "reviewing")
     dependencies.setState(root, {
       status: "saving",
-      message: "Hermes reviewing",
+      message: "Hermes 리뷰 중",
       warnings: captureWarnings,
     })
     const response = await dependencies.reviewCapture(settings, id)
@@ -150,7 +150,7 @@ export const createCaptureWorkflow = (
       dependencies.setPhase(root, "ready")
       dependencies.setState(root, {
         status: "saved",
-        message: "Review ready",
+        message: "리뷰 완료",
         warnings: captureWarnings,
       })
       return
@@ -167,7 +167,7 @@ export const createCaptureWorkflow = (
     captureWarnings = []
     dependencies.clearReview(root)
     dependencies.setPhase(root, "saving")
-    dependencies.setState(root, { status: "saving", message: "Refreshing metadata", warnings: [] })
+    dependencies.setState(root, { status: "saving", message: "메타데이터 갱신 중", warnings: [] })
     try {
       const settings = await dependencies.getSettings()
       const refreshed = await options.refreshCandidate()
@@ -175,11 +175,11 @@ export const createCaptureWorkflow = (
       const parsed = captureDraftPayloadSchema.safeParse(payload)
       if (!parsed.success) {
         await dependencies.saveDraft(root)
-        fail("Check symbol, provider, timeframe, and decision time", false)
+        fail("종목코드·타임프레임·판단 시각을 확인하세요", false)
         return
       }
       await dependencies.saveDraft(root)
-      dependencies.setState(root, { status: "saving", message: "Saving capture", warnings: [] })
+      dependencies.setState(root, { status: "saving", message: "캡처 저장 중", warnings: [] })
       const captureRequestId = dependencies.createCaptureRequestId()
       activeCaptureRequestId = captureRequestId
       let response: SaveCaptureMessageResponse
@@ -199,7 +199,7 @@ export const createCaptureWorkflow = (
       if (options.reviewImmediately?.() === true) {
         dependencies.setState(root, {
           status: "saved",
-          message: `Saved ${response.id}`,
+          message: `저장됨 ${response.id}`,
           warnings: response.warnings,
         })
         await runReview(response.id, settings)
@@ -208,7 +208,7 @@ export const createCaptureWorkflow = (
       dependencies.setPhase(root, "ready")
       dependencies.setState(root, {
         status: "saved",
-        message: `Saved ${response.id} · review runs after session CSV registration`,
+        message: `저장됨 ${response.id} · 세션 CSV 등록 후 리뷰 실행`,
         warnings: response.warnings,
       })
     } catch (error) {
@@ -245,13 +245,13 @@ export const createCaptureWorkflow = (
       const response = await dependencies.checkBackendHealth(await dependencies.getSettings())
       dependencies.setState(root, {
         status: response.ok && response.status < 500 ? "ready" : "warning",
-        message: response.ok ? "Backend ready" : response.error,
+        message: response.ok ? "백엔드 연결됨" : response.error,
         warnings: initialWarnings,
       })
     } catch (error) {
       if (error instanceof Error) {
         fail(describeWorkflowError(error.message) === error.message
-          ? "Backend unavailable"
+          ? "백엔드 연결 안 됨"
           : describeWorkflowError(error.message), false)
         return
       }

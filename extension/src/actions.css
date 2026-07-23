@@ -365,7 +365,7 @@
 }
 
 .fj-history-item[data-assessment="insufficient"] .fj-history-assessment,
-.fj-history-item[data-assessment="review pending"] .fj-history-assessment {
+.fj-history-item[data-assessment="pending"] .fj-history-assessment {
   color: var(--fj-warning);
 }
 
@@ -373,4 +373,106 @@
 .fj-history-item[data-assessment="conflicted"] .fj-history-assessment,
 .fj-history-item[data-assessment="failed"] .fj-history-assessment {
   color: var(--fj-danger);
+}
+
+
+.fj-review-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fj-review-chart,
+.fj-review-hypothesis {
+  color: var(--fj-muted);
+  font-size: 11px;
+}
+
+.fj-assessment[data-assessment="balanced"] {
+  color: var(--fj-ready);
+}
+
+.fj-assessment[data-assessment="insufficient"] {
+  color: var(--fj-warning);
+}
+
+.fj-assessment[data-assessment="overconfirmed"],
+.fj-assessment[data-assessment="conflicted"],
+.fj-assessment[data-assessment="failed"] {
+  color: var(--fj-danger);
+}
+
+.fj-metric-row,
+.fj-threshold-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.fj-metric-label {
+  flex: 0 0 88px;
+  color: var(--fj-muted);
+}
+
+.fj-metric-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.fj-metric-note {
+  color: var(--fj-muted);
+  font-size: 11px;
+}
+
+.fj-metric-gap {
+  margin-top: 4px;
+  color: var(--fj-muted);
+  font-size: 11px;
+}
+
+.fj-threshold-star {
+  flex: 0 0 12px;
+  color: var(--fj-accent);
+}
+
+.fj-threshold-row[data-active="true"] .fj-metric-value {
+  color: var(--fj-accent);
+  font-size: 13px;
+}
+
+.fj-review-subheading {
+  margin: 8px 0 2px;
+  color: var(--fj-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: none;
+}
+
+.fj-review-clean {
+  color: var(--fj-ready);
+  font-size: 11px;
+}
+
+.fj-review-risk-line {
+  margin-top: 6px;
+  color: var(--fj-warning);
+  font-size: 11px;
+}
+
+.fj-review-details {
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.fj-review-details summary {
+  color: var(--fj-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.fj-review-details[open] summary {
+  margin-bottom: 4px;
 }

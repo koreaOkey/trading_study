@@ -1,5 +1,17 @@
 import { createElement } from "./dom"
+import {
+  assessmentLabel,
+  formatDecisionTime,
+  formatPercent,
+  formatPrice,
+  hypothesisLabel,
+  timeframeLabel,
+} from "./format"
 import type { DecisionReviewResult, MaCrossoverEvidence } from "./types"
+
+export type ReviewRenderContext = {
+  readonly hypothesis?: string
+}
 
 const reviewContainer = (root: HTMLElement): HTMLElement | null =>
   root.querySelector<HTMLElement>("[data-review]")
@@ -26,81 +38,161 @@ const revealReview = (
 const paragraph = (text: string, className = "fj-review-copy"): HTMLParagraphElement =>
   createElement("p", className, text)
 
-const renderList = (title: string, items: readonly string[]): HTMLElement => {
-  const section = createElement("section", "fj-review-block")
-  const heading = createElement("h4", "fj-review-heading", title)
-  if (items.length === 0) {
-    section.replaceChildren(heading, paragraph("None identified", "fj-review-empty"))
-    return section
-  }
+const bulletList = (items: readonly string[]): HTMLElement => {
   const list = createElement("ul", "fj-review-list")
   list.replaceChildren(...items.map((item) => createElement("li", "", item)))
-  section.replaceChildren(heading, list)
-  return section
+  return list
 }
 
-const renderTextBlock = (title: string, text: string): HTMLElement => {
-  const section = createElement("section", "fj-review-block")
-  section.replaceChildren(
-    createElement("h4", "fj-review-heading", title),
-    paragraph(text),
+const collapsible = (title: string, children: readonly HTMLElement[]): HTMLElement => {
+  const details = document.createElement("details")
+  details.className = "fj-review-details"
+  const summary = document.createElement("summary")
+  summary.textContent = title
+  details.replaceChildren(summary, ...children)
+  return details
+}
+
+const renderHeader = (
+  evidence: MaCrossoverEvidence | null,
+  hypothesis: string | undefined,
+  assessment: string | null,
+): HTMLElement => {
+  const header = createElement("section", "fj-review-header fj-review-block")
+  const chartLine =
+    evidence === null
+      ? "차트 정보 없음"
+      : `${evidence.provider_symbol} · ${timeframeLabel(evidence.timeframe)} · ` +
+        formatDecisionTime(evidence.decision_time_exchange)
+  const badge = createElement(
+    "span",
+    "fj-assessment",
+    assessment === null ? "리뷰 실패" : assessmentLabel(assessment),
   )
-  return section
-}
-
-const emptyReviewLists = (): readonly HTMLElement[] => [
-  renderList("Sufficient evidence", []),
-  renderList("Missing evidence", []),
-  renderList("Excessive / redundant evidence", []),
-  renderList("Contradictions", []),
-]
-
-const measurementText = (
-  label: string,
-  measurement: MaCrossoverEvidence["sma_50"],
-): string => {
-  if (measurement.value === null) {
-    return `${label}: unavailable${measurement.null_reason === null ? "" : ` (${measurement.null_reason})`}`
+  badge.dataset["assessment"] = assessment ?? "failed"
+  const titleRow = createElement("div", "fj-review-header-row")
+  titleRow.append(createElement("h3", "fj-review-title", "판단 리뷰"), badge)
+  header.append(titleRow, createElement("div", "fj-review-chart", chartLine))
+  if (hypothesis !== undefined && hypothesis.length > 0) {
+    header.append(
+      createElement("div", "fj-review-hypothesis", `가설: ${hypothesisLabel(hypothesis)}`),
+    )
   }
-  const slope = measurement.slope_pct === null ? "slope unavailable" : `slope ${measurement.slope_pct}%`
-  return `${label}: ${measurement.value}, ${slope}`
+  return header
 }
 
-const thresholdLines = (evidence: MaCrossoverEvidence | null): readonly string[] => {
+const metricRow = (label: string, value: string, note: string): HTMLElement => {
+  const row = createElement("div", "fj-metric-row")
+  row.append(
+    createElement("span", "fj-metric-label", label),
+    createElement("span", "fj-metric-value", value),
+    createElement("span", "fj-metric-note", note),
+  )
+  return row
+}
+
+const distanceNote = (raw: string | null): string => {
+  if (raw === null) {
+    return ""
+  }
+  const value = Number.parseFloat(raw)
+  if (Number.isNaN(value)) {
+    return ""
+  }
+  const direction = value >= 0 ? "위" : "아래"
+  return `종가가 ${Math.abs(value).toFixed(1)}% ${direction}`
+}
+
+const renderMetrics = (evidence: MaCrossoverEvidence | null): HTMLElement => {
+  const block = createElement("section", "fj-review-block")
+  block.append(createElement("h4", "fj-review-heading", "핵심 수치"))
+  if (evidence === null) {
+    block.append(paragraph("증거 데이터 없음", "fj-review-empty"))
+    return block
+  }
+  const gapText =
+    evidence.sma_50_to_sma_200_gap_pct === null
+      ? "50/200 갭 ―"
+      : `50/200 갭 ${formatPercent(evidence.sma_50_to_sma_200_gap_pct, 2)}`
+  const trendText =
+    evidence.gap_trend === null
+      ? ""
+      : { narrowing: " · 축소 중", widening: " · 확대 중", flat: " · 횡보" }[
+          evidence.gap_trend
+        ]
+  block.append(
+    metricRow("종가", formatPrice(evidence.close), ""),
+    metricRow(
+      "SMA50",
+      formatPrice(evidence.sma_50.value),
+      distanceNote(evidence.sma_50.distance_from_close_pct),
+    ),
+    metricRow(
+      "SMA200",
+      formatPrice(evidence.sma_200.value),
+      distanceNote(evidence.sma_200.distance_from_close_pct),
+    ),
+    metricRow(
+      "VWMA100",
+      formatPrice(evidence.vwma_100.value),
+      distanceNote(evidence.vwma_100.distance_from_close_pct),
+    ),
+    createElement("div", "fj-metric-gap", `${gapText}${trendText}`),
+  )
+  return block
+}
+
+const renderThresholds = (evidence: MaCrossoverEvidence | null): HTMLElement => {
+  const block = createElement("section", "fj-review-block")
+  block.append(createElement("h4", "fj-review-heading", "구조 유지 라인 (다음 봉 종가)"))
   const thresholds = evidence?.thresholds ?? null
   if (thresholds === null) {
-    return ["Unavailable — needs at least 50 bars of evidence"]
+    block.append(paragraph("계산 불가 — 봉 데이터 50개 이상 필요", "fj-review-empty"))
+    return block
   }
-  const value = (raw: string | null): string => (raw === null ? "unavailable" : raw)
-  const basisLabel =
-    thresholds.basis === "cross_hold"
-      ? "cross hold (keep SMA50 ≥ SMA200)"
-      : "convergence hold (keep 50/200 gap narrowing)"
-  const projection = thresholds.structure_projection
-    .map((point) => `+${point.bar_offset}: ${point.min_close}`)
-    .join(" · ")
-  return [
-    `Active structure: ${basisLabel}`,
-    `Convergence hold — min close ${value(thresholds.convergence_min_close)}`,
-    `Cross reach/hold — min close ${value(thresholds.cross_min_close)}`,
-    `Stay above SMA50 — min close ${value(thresholds.sma50_hold_min_close)}`,
-    `Stay above VWMA100 — min close ${value(thresholds.vwma100_hold_min_close)}`,
-    ...(projection.length > 0 ? [`Structure line projection ${projection}`] : []),
-    "MA arithmetic facts for the next completed bar — not trade instructions",
+  const crossReached = thresholds.basis === "cross_hold"
+  const lines: Array<readonly [string, string | null, boolean]> = [
+    ["수렴 유지", thresholds.convergence_min_close, !crossReached],
+    [crossReached ? "크로스 유지" : "크로스 달성", thresholds.cross_min_close, crossReached],
+    ["SMA50 위 유지", thresholds.sma50_hold_min_close, false],
+    ["VWMA100 위 유지", thresholds.vwma100_hold_min_close, false],
   ]
+  for (const [label, value, active] of lines) {
+    const row = createElement("div", "fj-threshold-row")
+    if (active) {
+      row.dataset["active"] = "true"
+    }
+    row.append(
+      createElement("span", "fj-threshold-star", active ? "★" : ""),
+      createElement("span", "fj-metric-label", label),
+      createElement("span", "fj-metric-value", `≥ ${formatPrice(value)}`),
+    )
+    block.append(row)
+  }
+  if (thresholds.structure_projection.length > 0) {
+    const projectionText = thresholds.structure_projection
+      .map((point) => `+${point.bar_offset}봉 ${formatPrice(point.min_close)}`)
+      .join(" · ")
+    block.append(
+      collapsible("향후 5봉 투영 (경계 가정)", [
+        paragraph(projectionText),
+        paragraph(
+          "각 값은 해당 조건이 유지되는 최소 종가이며 매매 지시가 아닙니다.",
+          "fj-review-empty",
+        ),
+      ]),
+    )
+  }
+  return block
 }
 
-const evidenceLines = (evidence: MaCrossoverEvidence | null): readonly string[] => {
+const evidenceDetailLines = (evidence: MaCrossoverEvidence | null): readonly string[] => {
   if (evidence === null) {
-    return ["Indicator evidence unavailable"]
+    return ["증거 데이터 없음"]
   }
   return [
-    `${evidence.provider} ${evidence.provider_symbol} · ${evidence.timeframe} · ${evidence.data_status}`,
-    `Bars ${evidence.bar_count} · Close ${evidence.close ?? "unavailable"} · Volume ${evidence.volume ?? "unavailable"}`,
-    measurementText("SMA50", evidence.sma_50),
-    measurementText("SMA200", evidence.sma_200),
-    measurementText("VWMA100", evidence.vwma_100),
-    `SMA gap ${evidence.sma_50_to_sma_200_gap_pct ?? "unavailable"}% · ${evidence.gap_trend ?? "trend unavailable"}`,
+    `데이터: ${evidence.provider} · ${evidence.bar_count}봉 · ${evidence.data_status}`,
+    `거래량(마지막 봉): ${formatPrice(evidence.volume)}`,
     ...evidence.null_reasons,
   ]
 }
@@ -127,7 +219,7 @@ export const renderReviewError = (root: HTMLElement, message: string): void => {
   }
   section.hidden = false
   container.replaceChildren(
-    createElement("h3", "fj-review-title", "Review unavailable"),
+    createElement("h3", "fj-review-title", "리뷰를 불러올 수 없음"),
     paragraph(message),
   )
   const retry = reviewRetry(root)
@@ -137,7 +229,11 @@ export const renderReviewError = (root: HTMLElement, message: string): void => {
   revealReview(root, section, "failure")
 }
 
-export const renderReview = (root: HTMLElement, result: DecisionReviewResult): void => {
+export const renderReview = (
+  root: HTMLElement,
+  result: DecisionReviewResult,
+  context: ReviewRenderContext = {},
+): void => {
   const container = reviewContainer(root)
   const section = reviewSection(root)
   if (container === null || section === null) {
@@ -145,22 +241,17 @@ export const renderReview = (root: HTMLElement, result: DecisionReviewResult): v
   }
   section.hidden = false
   const retry = reviewRetry(root)
+  const hypothesis =
+    context.hypothesis ??
+    root.querySelector<HTMLInputElement>('[data-field="hypothesis"]')?.value
+
   if (result.status === "failed") {
     container.replaceChildren(
-      createElement("h3", "fj-review-title", "Review failed"),
-      renderTextBlock(
-        "Overall assessment",
-        `${result.failure.code}: ${result.failure.message}`,
-      ),
-      ...emptyReviewLists(),
-      renderTextBlock("Revised decision note", "Unavailable because the review failed."),
-      renderTextBlock("Risk note", "Unavailable because the review failed."),
-      renderList("Structure thresholds", thresholdLines(result.evidence)),
-      renderList("Evidence summary", evidenceLines(result.evidence)),
-      renderTextBlock(
-        "Model metadata",
-        `${result.failure.review_profile} · ${result.failure.review_model}`,
-      ),
+      renderHeader(result.evidence, hypothesis, null),
+      paragraph(`${result.failure.code}: ${result.failure.message}`),
+      renderMetrics(result.evidence),
+      renderThresholds(result.evidence),
+      collapsible("상세", [bulletList(evidenceDetailLines(result.evidence))]),
     )
     if (retry !== null) {
       retry.hidden = !result.failure.retryable
@@ -172,37 +263,58 @@ export const renderReview = (root: HTMLElement, result: DecisionReviewResult): v
     retry.hidden = true
   }
   const review = result.review
-  const summary = createElement("section", "fj-review-summary fj-review-block")
-  summary.replaceChildren(
-    createElement("h4", "fj-review-heading", "Overall assessment"),
-    createElement("span", "fj-assessment", review.overall_assessment),
-    paragraph(review.summary),
-  )
-  const revised = createElement("section", "fj-review-block")
-  revised.replaceChildren(
-    createElement("h4", "fj-review-heading", "Revised decision note"),
-    paragraph(review.revised_decision_note || "No revision provided"),
-  )
-  const risk = createElement("section", "fj-review-block fj-review-risk")
-  risk.replaceChildren(
-    createElement("h4", "fj-review-heading", "Risk note"),
-    paragraph(review.risk_note),
-  )
+
+  const reviewBlock = createElement("section", "fj-review-block")
+  reviewBlock.append(createElement("h4", "fj-review-heading", "리뷰"))
+  reviewBlock.append(paragraph(review.summary))
+  const issues: HTMLElement[] = []
+  if (review.missing_evidence.length > 0) {
+    issues.push(
+      createElement("h5", "fj-review-subheading", "부족한 근거"),
+      bulletList(review.missing_evidence),
+    )
+  }
+  if (review.contradictions.length > 0) {
+    issues.push(
+      createElement("h5", "fj-review-subheading", "모순"),
+      bulletList(review.contradictions),
+    )
+  }
+  if (review.excessive_evidence.length > 0) {
+    issues.push(
+      createElement("h5", "fj-review-subheading", "과잉·중복 근거"),
+      bulletList(review.excessive_evidence),
+    )
+  }
+  if (issues.length === 0) {
+    reviewBlock.append(paragraph("부족한 근거 없음 · 모순 없음", "fj-review-clean"))
+  } else {
+    reviewBlock.append(...issues)
+  }
+  if (review.sufficient_evidence.length > 0) {
+    reviewBlock.append(
+      collapsible(`충분한 근거 ${review.sufficient_evidence.length}개`, [
+        bulletList(review.sufficient_evidence),
+      ]),
+    )
+  }
+  reviewBlock.append(paragraph(`⚠ ${review.risk_note}`, "fj-review-risk-line"))
+
   container.replaceChildren(
-    createElement("h3", "fj-review-title", "Hermes decision review"),
-    summary,
-    renderList("Sufficient evidence", review.sufficient_evidence),
-    renderList("Missing evidence", review.missing_evidence),
-    renderList("Excessive / redundant evidence", review.excessive_evidence),
-    renderList("Contradictions", review.contradictions),
-    revised,
-    risk,
-    renderList("Structure thresholds", thresholdLines(result.evidence)),
-    renderList("Evidence summary", evidenceLines(result.evidence)),
-    renderTextBlock(
-      "Model metadata",
-      `${review.review_profile} · ${review.review_model} · ${review.review_created_at_utc}`,
-    ),
+    renderHeader(result.evidence, hypothesis, review.overall_assessment),
+    renderMetrics(result.evidence),
+    renderThresholds(result.evidence),
+    reviewBlock,
+    collapsible("상세", [
+      createElement("h5", "fj-review-subheading", "측정값 기반 수정 노트"),
+      paragraph(review.revised_decision_note || "없음"),
+      createElement("h5", "fj-review-subheading", "데이터 출처"),
+      bulletList(evidenceDetailLines(result.evidence)),
+      createElement("h5", "fj-review-subheading", "모델"),
+      paragraph(
+        `${review.review_profile} · ${review.review_model} · ${review.review_created_at_utc}`,
+      ),
+    ]),
   )
   revealReview(root, section, "complete")
 }

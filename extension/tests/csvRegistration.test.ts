@@ -85,7 +85,7 @@ describe("chart extract to CSV", () => {
 describe("workflow error description", () => {
   test("maps extension-context loss to a reload instruction", () => {
     expect(describeWorkflowError("Extension context invalidated.")).toBe(
-      "Extension updated — reload this TradingView tab",
+      "확장이 업데이트됨 — 이 탭을 새로고침하세요",
     )
     expect(describeWorkflowError("Request timed out")).toBe("Request timed out")
   })

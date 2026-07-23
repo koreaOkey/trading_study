@@ -54,14 +54,14 @@ export const coverageBadge = (
   if (minutes === null) {
     return {
       state: "not-needed",
-      message: "CSV not needed — daily scoring uses KIS directly",
+      message: "CSV 불필요 — 일봉은 KIS로 자동 처리",
       registerDisabled: true,
     }
   }
   if (!registered || coverage === null) {
     return {
       state: "needed",
-      message: "CSV not registered — extract chart data after this session",
+      message: "CSV 미등록 — 세션 종료 후 차트를 추출하세요",
       registerDisabled: false,
     }
   }
@@ -70,13 +70,13 @@ export const coverageBadge = (
   if (requiredEnd !== null && !Number.isNaN(coverageEnd.getTime()) && coverageEnd >= requiredEnd) {
     return {
       state: "covered",
-      message: `CSV registered ✓ extract not needed (${coverage.bar_count} bars, through ${coverage.last_time_exchange.slice(0, 10)})`,
+      message: `CSV 등록됨 ✓ 추출 불필요 (${coverage.bar_count}봉, ${coverage.last_time_exchange.slice(0, 10)}까지)`,
       registerDisabled: true,
     }
   }
   return {
     state: "needed",
-    message: `CSV registered through ${coverage.last_time_exchange.slice(0, 10)} — extract again to cover this judgment's scoring window`,
+    message: `CSV가 ${coverage.last_time_exchange.slice(0, 10)}까지만 등록됨 — 채점 구간까지 다시 추출하세요`,
     registerDisabled: false,
   }
 }
@@ -181,7 +181,7 @@ export const bindCsvRegistration = (
     try {
       const response = await getBarCoverage(await getSettings(), symbol, timeframe)
       if (!response.ok) {
-        setStatus(`CSV coverage check failed: ${response.error}`, "unknown", 0)
+        setStatus(`CSV 상태 확인 실패: ${response.error}`, "unknown", 0)
         return
       }
       coverageCache = {
@@ -194,7 +194,7 @@ export const bindCsvRegistration = (
         coverageBadge(timeframe, decisionTime, response.registered, response.coverage),
       )
     } catch {
-      setStatus("CSV coverage check failed", "unknown", 0)
+      setStatus("CSV 상태 확인 실패", "unknown", 0)
     }
   }
 
@@ -203,16 +203,15 @@ export const bindCsvRegistration = (
     if (!symbol || !timeframe) {
       return
     }
-    setStatus("Registering bars and running deferred reviews…")
+    setStatus("봉 등록 및 대기 리뷰 실행 중…")
     try {
       const response = await registerBarSeries(await getSettings(), symbol, timeframe, csvText)
       if (!response.ok) {
-        setStatus(`Registration failed: ${response.error}`)
+        setStatus(`등록 실패: ${response.error}`)
         return
       }
       setStatus(
-        `Registered ${response.coverage.bar_count} bars · ` +
-          `${response.reviews.length} review(s) completed`,
+        `${response.coverage.bar_count}봉 등록됨 · 리뷰 ${response.reviews.length}건 완료`,
         "covered",
       )
       const currentId = workflow.lastCaptureId()
@@ -226,26 +225,24 @@ export const bindCsvRegistration = (
       await refresh()
     } catch (error) {
       setStatus(
-        error instanceof Error
-          ? `Registration failed: ${error.message}`
-          : "Registration failed",
+        error instanceof Error ? `등록 실패: ${error.message}` : "등록 실패",
       )
     }
   }
 
   const extract = async (): Promise<void> => {
-    setStatus("Reading chart data…")
+    setStatus("차트 데이터 읽는 중…")
     // A replay-mode series stops at the cursor, so the scoring window after
     // the decision would be missing from the extract.
     const candidate = await requestFreshPageMetadata()
     if (candidate?.replayActive === true) {
-      setStatus("Exit replay first — the extract must include post-decision bars", "needed")
+      setStatus("리플레이를 먼저 종료하세요 — 판단 이후 봉이 포함돼야 합니다", "needed")
       return
     }
     const bars: PageBars | null = await requestPageBars()
     if (bars === null || bars.error !== null || bars.rows.length === 0) {
       setStatus(
-        `Chart extract unavailable (${bars?.error ?? "timeout"}) — use "Register CSV file" instead`,
+        `차트 추출 실패 (${bars?.error ?? "응답 없음"}) — "CSV 파일 등록"을 사용하세요`,
       )
       return
     }

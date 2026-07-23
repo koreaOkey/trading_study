@@ -12,8 +12,14 @@ class FakeElement {
   offsetTop = 0
   scrollTop = 0
 
+  readonly dataset: Record<string, string> = {}
+
   replaceChildren(...children: FakeElement[]): void {
     this.children.splice(0, this.children.length, ...children)
+  }
+
+  append(...children: FakeElement[]): void {
+    this.children.push(...children)
   }
 
   setAttribute(name: string, value: string): void {
@@ -95,15 +101,15 @@ describe("decision review rendering", () => {
     expect(root.section.getAttribute("role")).toBe("status")
     expect(root.section.getAttribute("aria-live")).toBe("polite")
     const text = flattenText(root.container)
-    expect(text).toContain("Overall assessment")
-    expect(text).toContain("Sufficient evidence")
-    expect(text).toContain("Missing evidence")
-    expect(text).toContain("Excessive / redundant evidence")
-    expect(text).toContain("Contradictions")
-    expect(text).toContain("Revised decision note")
-    expect(text).toContain("Risk note")
-    expect(text).toContain("Model metadata")
-    expect(text.filter((value) => value === "None identified")).toHaveLength(4)
+    expect(text).toContain("판단 리뷰")
+    expect(text).toContain("균형")
+    expect(text).toContain("핵심 수치")
+    expect(text).toContain("구조 유지 라인 (다음 봉 종가)")
+    expect(text).toContain("리뷰")
+    expect(text).toContain("부족한 근거 없음 · 모순 없음")
+    expect(text).toContain("상세")
+    expect(text).toContain("측정값 기반 수정 노트")
+    expect(text).toContain("⚠ Crossovers can fail.")
   })
 
   test("announces and reveals a review failure", () => {
@@ -158,7 +164,9 @@ describe("decision review rendering", () => {
     renderReview(root as HTMLElement, result)
 
     // Then
-    expect(flattenText(root.container).filter((text) => text === malicious)).toHaveLength(4)
+    const rendered = flattenText(root.container)
+    expect(rendered.filter((text) => text === malicious)).toHaveLength(3)
+    expect(rendered).toContain(`⚠ ${malicious}`)
     expect(Reflect.get(globalThis, "pwned")).toBeUndefined()
   })
 })

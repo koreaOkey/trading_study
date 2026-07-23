@@ -19,8 +19,9 @@ describe("review history labels", () => {
   test("pending review is labeled as such", () => {
     const label = historyItemLabel(item())
     expect(label.decision).toBe("2026-07-03 12:59")
-    expect(label.hypothesis).toBe("Golden cross")
-    expect(label.assessment).toBe("review pending")
+    expect(label.hypothesis).toBe("골든크로스 예상")
+    expect(label.assessment).toBe("리뷰 대기")
+    expect(label.state).toBe("pending")
   })
 
   test("ready review surfaces the overall assessment", () => {
@@ -49,7 +50,8 @@ describe("review history labels", () => {
         },
       }),
     )
-    expect(label.assessment).toBe("balanced")
+    expect(label.assessment).toBe("균형")
+    expect(label.state).toBe("balanced")
   })
 
   test("failed review is labeled failed", () => {
@@ -71,6 +73,7 @@ describe("review history labels", () => {
         },
       }),
     )
-    expect(label.assessment).toBe("failed")
+    expect(label.assessment).toBe("실패")
+    expect(label.state).toBe("failed")
   })
 })
