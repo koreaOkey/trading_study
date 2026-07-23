@@ -84,11 +84,15 @@ There is one primary action: **Submit for review**.
 4. The extension refreshes TradingView metadata, captures the visible tab, and
    persists the capture. The Hermes review is deferred until the session CSV is
    registered (intraday timeframes) so it always runs on complete evidence.
-5. After the session ends, exit replay, use TradingView's **Export chart data**
-   (paid plans), and press **Register session CSV** in the journal sheet. The
-   backend stores the series under `bar_series/`, reviews every pending capture
-   for that symbol x timeframe using only bars at/before each decision time,
-   and the sheet renders the review for the latest capture.
+5. After the session ends, exit replay and press **Extract chart data &
+   register** in the journal sheet — the extension reads the loaded chart
+   series via `TradingViewApi.exportData()` and registers it in one step
+   (**Register CSV file…** stays available as a manual fallback using
+   TradingView's Export chart data feature). The backend stores the series
+   under `bar_series/`, reviews every pending capture for that symbol x
+   timeframe using only bars at/before each decision time, and the sheet
+   renders the review for the latest capture. The extract button refuses to
+   run while replay is active so post-decision bars are never missing.
 6. The CSV badge shows per chart whether a registered series already covers the
    scoring window (`CSV registered ✓ export not needed`) — in that case the
    register button is disabled and no new export is required. Daily (`1D`)

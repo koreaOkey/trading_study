@@ -1,6 +1,8 @@
 import { z } from "zod"
 
 import {
+  PAGE_BARS_EVENT,
+  PAGE_BARS_REQUEST_EVENT,
   PAGE_METADATA_EVENT,
   PAGE_METADATA_REQUEST_EVENT,
 } from "./bridgeProtocol"
@@ -74,6 +76,41 @@ export const requestFreshPageMetadata = (timeoutMs = 1_200): Promise<CandidateMe
     document.addEventListener(PAGE_METADATA_EVENT, handleMetadata)
     document.dispatchEvent(
       new CustomEvent(PAGE_METADATA_REQUEST_EVENT, { detail: { requestId } }),
+    )
+  })
+
+const pageBarsSchema = z.object({
+  requestId: z.string().max(64),
+  symbol: z.string().max(64),
+  timeframe: z.string().max(16),
+  columns: z.array(z.string().max(64)).max(64),
+  rows: z.array(z.array(z.number().finite().nullable()).max(64)).max(50_000),
+  error: z.string().max(400).nullable(),
+})
+
+export type PageBars = z.infer<typeof pageBarsSchema>
+
+export const requestPageBars = (timeoutMs = 15_000): Promise<PageBars | null> =>
+  new Promise((resolve) => {
+    const finish = (bars: PageBars | null): void => {
+      window.clearTimeout(timeoutId)
+      document.removeEventListener(PAGE_BARS_EVENT, handleBars)
+      resolve(bars)
+    }
+    const handleBars = (event: Event): void => {
+      if (!(event instanceof CustomEvent)) {
+        return
+      }
+      const parsed = pageBarsSchema.safeParse(event.detail)
+      if (parsed.success && parsed.data.requestId === requestId) {
+        finish(parsed.data)
+      }
+    }
+    const requestId = crypto.randomUUID()
+    const timeoutId = window.setTimeout(() => finish(null), timeoutMs)
+    document.addEventListener(PAGE_BARS_EVENT, handleBars)
+    document.dispatchEvent(
+      new CustomEvent(PAGE_BARS_REQUEST_EVENT, { detail: { requestId } }),
     )
   })
 

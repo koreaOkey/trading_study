@@ -61,6 +61,13 @@ const initialWarnings: readonly WarningCode[] = [
   "price_basis_unverified",
 ]
 
+// After the extension is reloaded/updated, content scripts already injected in
+// open tabs lose their runtime and every sendMessage throws this error.
+export const describeWorkflowError = (message: string): string =>
+  message.includes("Extension context invalidated")
+    ? "Extension updated — reload this TradingView tab"
+    : message
+
 export const setWorkflowPhase = (root: HTMLElement, phase: WorkflowPhase): void => {
   const submit = root.querySelector<HTMLButtonElement>("[data-submit-review]")
   if (submit === null) {
@@ -115,7 +122,7 @@ export const createCaptureWorkflow = (
     dependencies.setState(root, {
       status: "error",
       message,
-      warnings: captureWarnings.length > 0 ? captureWarnings : ["backend_unavailable"],
+      warnings: captureWarnings,
     })
     if (showReviewError) {
       dependencies.renderReviewError(root, message)
@@ -193,7 +200,7 @@ export const createCaptureWorkflow = (
       })
     } catch (error) {
       if (error instanceof Error) {
-        fail(error.message, captureId !== null)
+        fail(describeWorkflowError(error.message), captureId !== null)
         return
       }
       throw error
@@ -211,7 +218,7 @@ export const createCaptureWorkflow = (
       await runReview(captureId, await dependencies.getSettings())
     } catch (error) {
       if (error instanceof Error) {
-        fail(error.message, true)
+        fail(describeWorkflowError(error.message), true)
         return
       }
       throw error
@@ -230,7 +237,9 @@ export const createCaptureWorkflow = (
       })
     } catch (error) {
       if (error instanceof Error) {
-        fail("Backend unavailable", false)
+        fail(describeWorkflowError(error.message) === error.message
+          ? "Backend unavailable"
+          : describeWorkflowError(error.message), false)
         return
       }
       throw error

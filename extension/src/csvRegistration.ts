@@ -4,11 +4,14 @@ import type { BarSeriesCoverage } from "./messageProtocol"
 import { getBarCoverage, registerBarSeries } from "./messages"
 import { renderReview } from "./reviewRenderer"
 import { getSettings } from "./storage"
+import { requestFreshPageMetadata, requestPageBars } from "./tradingViewBridge"
+import type { PageBars } from "./tradingViewBridge"
 
 const HORIZON_BARS = 40
 const SESSION_MINUTES_PER_DAY = 391
 const CALENDAR_DAYS_PER_TRADING_DAY = 1.5
 const DAY_MS = 24 * 60 * 60 * 1000
+const COVERAGE_CACHE_MS = 60_000
 
 export type CsvBadge = {
   readonly state: "not-needed" | "covered" | "needed" | "unknown"
@@ -58,7 +61,7 @@ export const coverageBadge = (
   if (!registered || coverage === null) {
     return {
       state: "needed",
-      message: "CSV not registered — export chart data after this session",
+      message: "CSV not registered — extract chart data after this session",
       registerDisabled: false,
     }
   }
@@ -67,19 +70,37 @@ export const coverageBadge = (
   if (requiredEnd !== null && !Number.isNaN(coverageEnd.getTime()) && coverageEnd >= requiredEnd) {
     return {
       state: "covered",
-      message: `CSV registered ✓ export not needed (${coverage.bar_count} bars, through ${coverage.last_time_exchange.slice(0, 10)})`,
+      message: `CSV registered ✓ extract not needed (${coverage.bar_count} bars, through ${coverage.last_time_exchange.slice(0, 10)})`,
       registerDisabled: true,
     }
   }
   return {
     state: "needed",
-    message: `CSV registered through ${coverage.last_time_exchange.slice(0, 10)} — export again to cover this judgment's scoring window`,
+    message: `CSV registered through ${coverage.last_time_exchange.slice(0, 10)} — extract again to cover this judgment's scoring window`,
     registerDisabled: false,
   }
 }
 
+export const buildCsvText = (
+  columns: readonly string[],
+  rows: ReadonlyArray<ReadonlyArray<number | null>>,
+): string => {
+  const lines = [
+    columns.join(","),
+    ...rows.map((row) => row.map((value) => (value === null ? "" : String(value))).join(",")),
+  ]
+  return `${lines.join("\n")}\n`
+}
+
 type CsvRegistrationController = {
   readonly refresh: () => Promise<void>
+}
+
+type CoverageCache = {
+  readonly key: string
+  readonly at: number
+  readonly registered: boolean
+  readonly coverage: BarSeriesCoverage | null
 }
 
 const applyBadge = (root: HTMLElement, badge: CsvBadge): void => {
@@ -88,10 +109,11 @@ const applyBadge = (root: HTMLElement, badge: CsvBadge): void => {
     status.textContent = badge.message
     status.dataset["csvState"] = badge.state
   }
-  const button = root.querySelector<HTMLButtonElement>("[data-register-csv]")
-  if (button !== null) {
-    button.disabled = badge.registerDisabled
-  }
+  root
+    .querySelectorAll<HTMLButtonElement>("[data-extract-csv], [data-register-csv]")
+    .forEach((button) => {
+      button.disabled = badge.registerDisabled
+    })
 }
 
 const chartKeys = (root: HTMLElement): { symbol: string; timeframe: string } => ({
@@ -104,8 +126,17 @@ export const bindCsvRegistration = (
   workflow: Pick<CaptureWorkflow, "lastCaptureId">,
 ): CsvRegistrationController => {
   const status = root.querySelector<HTMLElement>("[data-csv-status]")
-  const button = root.querySelector<HTMLButtonElement>("[data-register-csv]")
+  const extractButton = root.querySelector<HTMLButtonElement>("[data-extract-csv]")
+  const fileButton = root.querySelector<HTMLButtonElement>("[data-register-csv]")
   const fileInput = root.querySelector<HTMLInputElement>("[data-csv-file]")
+  let coverageCache: CoverageCache | null = null
+
+  const setStatus = (message: string, state: CsvBadge["state"] = "unknown"): void => {
+    if (status !== null) {
+      status.textContent = message
+      status.dataset["csvState"] = state
+    }
+  }
 
   const refresh = async (): Promise<void> => {
     const { symbol, timeframe } = chartKeys(root)
@@ -117,46 +148,56 @@ export const bindCsvRegistration = (
       applyBadge(root, coverageBadge(timeframe, decisionTime, false, null))
       return
     }
+    const key = `${symbol}|${timeframe}`
+    if (coverageCache !== null && coverageCache.key === key) {
+      // The replay cursor updates decisionTime every tick; recompute the badge
+      // locally and only re-ask the backend once the cache expires.
+      applyBadge(
+        root,
+        coverageBadge(timeframe, decisionTime, coverageCache.registered, coverageCache.coverage),
+      )
+      if (Date.now() - coverageCache.at < COVERAGE_CACHE_MS) {
+        return
+      }
+    }
     try {
       const response = await getBarCoverage(await getSettings(), symbol, timeframe)
       if (!response.ok) {
-        applyBadge(root, {
-          state: "unknown",
-          message: `CSV coverage check failed: ${response.error}`,
-          registerDisabled: false,
-        })
+        setStatus(`CSV coverage check failed: ${response.error}`)
         return
+      }
+      coverageCache = {
+        key,
+        at: Date.now(),
+        registered: response.registered,
+        coverage: response.coverage,
       }
       applyBadge(
         root,
         coverageBadge(timeframe, decisionTime, response.registered, response.coverage),
       )
     } catch {
-      applyBadge(root, {
-        state: "unknown",
-        message: "CSV coverage check failed",
-        registerDisabled: false,
-      })
+      setStatus("CSV coverage check failed")
     }
   }
 
-  const register = async (file: File): Promise<void> => {
+  const registerText = async (csvText: string): Promise<void> => {
     const { symbol, timeframe } = chartKeys(root)
-    if (!symbol || !timeframe || status === null) {
+    if (!symbol || !timeframe) {
       return
     }
-    status.textContent = "Registering CSV and running deferred reviews…"
-    status.dataset["csvState"] = "unknown"
+    setStatus("Registering bars and running deferred reviews…")
     try {
-      const csvText = await file.text()
       const response = await registerBarSeries(await getSettings(), symbol, timeframe, csvText)
       if (!response.ok) {
-        status.textContent = `CSV registration failed: ${response.error}`
+        setStatus(`Registration failed: ${response.error}`)
         return
       }
-      status.textContent =
-        `CSV registered (${response.coverage.bar_count} bars) · ` +
-        `${response.reviews.length} review(s) completed`
+      setStatus(
+        `Registered ${response.coverage.bar_count} bars · ` +
+          `${response.reviews.length} review(s) completed`,
+        "covered",
+      )
       const currentId = workflow.lastCaptureId()
       const currentReview = response.reviews.find(
         (review) => review.capture_id === currentId,
@@ -164,16 +205,42 @@ export const bindCsvRegistration = (
       if (currentReview !== undefined) {
         renderReview(root, currentReview)
       }
+      coverageCache = null
       await refresh()
     } catch (error) {
-      status.textContent =
+      setStatus(
         error instanceof Error
-          ? `CSV registration failed: ${error.message}`
-          : "CSV registration failed"
+          ? `Registration failed: ${error.message}`
+          : "Registration failed",
+      )
     }
   }
 
-  button?.addEventListener("click", (event) => {
+  const extract = async (): Promise<void> => {
+    setStatus("Reading chart data…")
+    // A replay-mode series stops at the cursor, so the scoring window after
+    // the decision would be missing from the extract.
+    const candidate = await requestFreshPageMetadata()
+    if (candidate?.replayActive === true) {
+      setStatus("Exit replay first — the extract must include post-decision bars", "needed")
+      return
+    }
+    const bars: PageBars | null = await requestPageBars()
+    if (bars === null || bars.error !== null || bars.rows.length === 0) {
+      setStatus(
+        `Chart extract unavailable (${bars?.error ?? "timeout"}) — use "Register CSV file" instead`,
+      )
+      return
+    }
+    await registerText(buildCsvText(bars.columns, bars.rows))
+  }
+
+  extractButton?.addEventListener("click", (event) => {
+    if (event.isTrusted) {
+      void extract()
+    }
+  })
+  fileButton?.addEventListener("click", (event) => {
     if (event.isTrusted) {
       fileInput?.click()
     }
@@ -181,7 +248,7 @@ export const bindCsvRegistration = (
   fileInput?.addEventListener("change", () => {
     const file = fileInput.files?.[0]
     if (file !== undefined) {
-      void register(file)
+      void file.text().then(registerText)
     }
     fileInput.value = ""
   })

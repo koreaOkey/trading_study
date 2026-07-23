@@ -1,8 +1,10 @@
 import {
+  PAGE_BARS_EVENT,
+  PAGE_BARS_REQUEST_EVENT,
   PAGE_METADATA_EVENT,
   PAGE_METADATA_REQUEST_EVENT,
 } from "./bridgeProtocol"
-import type { PageChartMetadata } from "./bridgeProtocol"
+import type { PageBarsPayload, PageChartMetadata } from "./bridgeProtocol"
 
 type WatchedValue<T> = {
   readonly value: () => T
@@ -76,7 +78,83 @@ const requestPublish = (event: Event): void => {
   void publishSafely(requestId)
 }
 
+type ExportDataField = {
+  readonly type?: string
+  readonly plotTitle?: string
+  readonly sourceTitle?: string
+}
+
+type ExportDataResult = {
+  readonly schema: readonly ExportDataField[]
+  readonly data: ReadonlyArray<ReadonlyArray<number | null>>
+}
+
+type ExportCapableChart = TradingViewChartApi & {
+  readonly exportData?: (options?: {
+    readonly includeTime?: boolean
+    readonly includeSeries?: boolean
+    readonly includedStudies?: readonly string[] | "all"
+  }) => Promise<ExportDataResult>
+}
+
+const columnTitle = (field: ExportDataField, index: number): string => {
+  if (field.type === "time") {
+    return "time"
+  }
+  return field.plotTitle || field.sourceTitle || `col${index}`
+}
+
+const publishPageBars = async (requestId: string): Promise<void> => {
+  const base: Omit<PageBarsPayload, "error"> = {
+    requestId,
+    symbol: "",
+    timeframe: "",
+    columns: [],
+    rows: [],
+  }
+  let detail: PageBarsPayload
+  try {
+    const api = (window as TradingViewWindow).TradingViewApi
+    if (api === undefined) {
+      throw new Error("tradingview_api_unavailable")
+    }
+    const chart = api.activeChart() as ExportCapableChart
+    if (typeof chart.exportData !== "function") {
+      throw new Error("export_data_unavailable")
+    }
+    const result = await chart.exportData({
+      includeTime: true,
+      includeSeries: true,
+      includedStudies: "all",
+    })
+    detail = {
+      requestId,
+      symbol: chart.symbol(),
+      timeframe: chart.resolution(),
+      columns: result.schema.map(columnTitle),
+      rows: result.data,
+      error: null,
+    }
+  } catch (error) {
+    detail = { ...base, error: error instanceof Error ? error.message : "export_failed" }
+  }
+  document.dispatchEvent(new CustomEvent<PageBarsPayload>(PAGE_BARS_EVENT, { detail }))
+}
+
+const requestBars = (event: Event): void => {
+  if (
+    event instanceof CustomEvent &&
+    typeof event.detail === "object" &&
+    event.detail !== null &&
+    "requestId" in event.detail &&
+    typeof event.detail.requestId === "string"
+  ) {
+    void publishPageBars(event.detail.requestId)
+  }
+}
+
 document.addEventListener(PAGE_METADATA_REQUEST_EVENT, requestPublish)
+document.addEventListener(PAGE_BARS_REQUEST_EVENT, requestBars)
 let pollInFlight = false
 const poll = (): void => {
   if (pollInFlight) {

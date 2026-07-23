@@ -68,7 +68,8 @@ const overlayMarkup = (): string => `
       </section>
       <section class="fj-csv-section">
         <div class="fj-csv-status" data-csv-status data-csv-state="unknown" role="status" aria-live="polite">CSV coverage: checking…</div>
-        <button class="fj-register-csv" type="button" data-register-csv>Register session CSV</button>
+        <button class="fj-register-csv" type="button" data-extract-csv>Extract chart data &amp; register</button>
+        <button class="fj-register-csv fj-register-csv-secondary" type="button" data-register-csv>Register CSV file…</button>
         <input type="file" accept=".csv,text/csv" data-csv-file hidden />
       </section>
       <div class="fj-warnings" data-warnings aria-live="polite"></div>

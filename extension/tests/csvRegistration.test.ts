@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 
+import { describeWorkflowError } from "../src/captureWorkflow"
 import {
+  buildCsvText,
   coverageBadge,
   parseTimeframeMinutes,
   requiredCoverageEnd,
@@ -57,5 +59,34 @@ describe("csv coverage badge", () => {
     const badge = coverageBadge("240", DECISION_TIME, true, coverage("2026-07-04T15:00:00+09:00"))
     expect(badge.state).toBe("needed")
     expect(badge.registerDisabled).toBe(false)
+  })
+})
+
+describe("chart extract to CSV", () => {
+  test("builds a backend-parseable CSV with nulls as empty cells", () => {
+    // Given: exportData-shaped columns and rows (unix seconds, null warm-up).
+    const csv = buildCsvText(
+      ["time", "open", "high", "low", "close", "Volume"],
+      [
+        [1750000000, 100, 101, 99, 100.5, 1500],
+        [1750014400, 101, 102, 100, null, null],
+      ],
+    )
+
+    // Then
+    expect(csv).toBe(
+      "time,open,high,low,close,Volume\n" +
+        "1750000000,100,101,99,100.5,1500\n" +
+        "1750014400,101,102,100,,\n",
+    )
+  })
+})
+
+describe("workflow error description", () => {
+  test("maps extension-context loss to a reload instruction", () => {
+    expect(describeWorkflowError("Extension context invalidated.")).toBe(
+      "Extension updated — reload this TradingView tab",
+    )
+    expect(describeWorkflowError("Request timed out")).toBe("Request timed out")
   })
 })
