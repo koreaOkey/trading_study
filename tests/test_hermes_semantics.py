@@ -8,6 +8,7 @@ from fractal_journal.hermes_selection import HermesAuthoredSelection
 from fractal_journal.hermes_semantics import (
     SelectionEvidenceMismatchError,
     build_revised_decision_note,
+    describe_finding_codes,
     validate_selection_against_evidence,
 )
 from fractal_journal.schemas import (
@@ -107,6 +108,67 @@ def test_revised_note_uses_only_trusted_hypothesis_and_numeric_evidence(
     assert "봉 수=200" in revised
     assert origin in revised
     assert sentinel not in revised
+
+
+def test_finding_descriptions_cite_the_measurements_behind_each_verdict() -> None:
+    # Given: a golden-cross hypothesis with a barely negative VWMA100 slope.
+    evidence = _evidence().model_copy(
+        update={
+            "vwma_100": IndicatorMeasurement(
+                value=Decimal(81451),
+                previous_value=Decimal(81469),
+                slope_pct=Decimal("-0.0219"),
+                distance_from_close_pct=Decimal("8.29"),
+                bars_used=100,
+            ),
+        },
+    )
+
+    # When
+    (described,) = describe_finding_codes(
+        ("vwma_hypothesis_conflict",),
+        evidence,
+        Hypothesis.GOLDEN_CROSS_EXPECTED,
+    )
+
+    # Then: the fixed sentence stays, the measured why is appended.
+    assert described.startswith("VWMA100 방향과 선택한 가설이 충돌한다.")
+    assert "상승 전환을 전제" in described
+    assert "-0.022%" in described
+
+
+def test_missing_findings_explain_bar_shortfalls_from_null_reasons() -> None:
+    evidence = _evidence().model_copy(
+        update={
+            "bar_count": 150,
+            "sma_200": IndicatorMeasurement(
+                bars_used=150,
+                null_reason="sma_200_requires_200_bars",
+            ),
+        },
+    )
+
+    described = describe_finding_codes(
+        ("sma200_value_missing", "bars_insufficient"),
+        evidence,
+        Hypothesis.GOLDEN_CROSS_EXPECTED,
+    )
+
+    assert "현재 봉 150개로 필요 봉 200개에 미달한다" in described[0]
+    assert "최소 200개에 미달한다" in described[1]
+
+
+def test_findings_without_extra_context_keep_the_fixed_sentence() -> None:
+    described = describe_finding_codes(
+        ("golden_gap_direction_conflict",),
+        _evidence().model_copy(update={"sma_50_to_sma_200_gap_pct": Decimal("1.5")}),
+        Hypothesis.GOLDEN_CROSS_EXPECTED,
+    )
+
+    assert described == (
+        "골든크로스 가설과 간격 방향이 충돌한다. "
+        "SMA50이 이미 SMA200 위에 있다(간격 +1.50%).",
+    )
 
 
 def _selection(

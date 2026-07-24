@@ -210,6 +210,8 @@ def selection_to_review(
     envelope: HermesWorkerEnvelope,
     *,
     revised_decision_note: str,
+    missing_evidence: tuple[str, ...] | None = None,
+    contradictions: tuple[str, ...] | None = None,
 ) -> DecisionReview:
     selection = envelope.selection
     return DecisionReview(
@@ -219,9 +221,17 @@ def selection_to_review(
         overall_assessment=selection.overall_assessment,
         summary=_SUMMARY_TEXT[selection.overall_assessment],
         sufficient_evidence=map_finding_codes(selection.sufficient_codes),
-        missing_evidence=map_finding_codes(selection.missing_codes),
+        missing_evidence=(
+            missing_evidence
+            if missing_evidence is not None
+            else map_finding_codes(selection.missing_codes)
+        ),
         excessive_evidence=map_finding_codes(selection.excessive_codes),
-        contradictions=map_finding_codes(selection.contradiction_codes),
+        contradictions=(
+            contradictions
+            if contradictions is not None
+            else map_finding_codes(selection.contradiction_codes)
+        ),
         revised_decision_note=revised_decision_note,
         risk_note=RISK_NOTE,
     )
