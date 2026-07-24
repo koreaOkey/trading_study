@@ -91,15 +91,13 @@ export const getBarCoverage = async (
 export const getRecentReviews = async (
   settings: ExtensionSettings,
   symbol: string,
-  timeframe: string,
-  limit = 10,
+  limit = 20,
 ): Promise<RecentReviewsMessageResponse> => {
   return recentReviewsMessageResponseSchema.parse(
     await chrome.runtime.sendMessage({
       kind: "get-recent-reviews",
       settings,
       symbol,
-      timeframe,
       limit,
     }),
   )

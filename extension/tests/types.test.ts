@@ -45,6 +45,7 @@ const draftPayload = {
     source_url: "https://www.tradingview.com/chart/example/",
     page_title: "005930 1 Samsung Electronics",
     symbol_candidate: "005930",
+    symbol_name_candidate: "삼성전자",
     timeframe_candidate: "1D",
     decision_time_candidate: "2026-07-09T10:00:00+09:00",
     replay_active: true,

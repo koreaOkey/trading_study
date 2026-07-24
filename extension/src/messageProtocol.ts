@@ -57,7 +57,6 @@ export type RecentReviewsMessage = {
   readonly kind: "get-recent-reviews"
   readonly settings: ExtensionSettings
   readonly symbol: string
-  readonly timeframe: string
   readonly limit: number
 }
 
@@ -135,6 +134,7 @@ export const reviewHistoryItemSchema = z.object({
   capture_id: z.string(),
   created_at: z.string(),
   symbol: z.string(),
+  symbol_name: z.string().optional().default(""),
   timeframe: z.string(),
   decision_time_exchange: z.string(),
   hypothesis: z.string(),
@@ -188,7 +188,6 @@ export const extensionMessageSchema = z.discriminatedUnion("kind", [
     kind: z.literal("get-recent-reviews"),
     settings: settingsSchema,
     symbol: z.string().min(1).max(32),
-    timeframe: z.string().min(1).max(16),
     limit: z.number().int().min(1).max(50),
   }),
 ])

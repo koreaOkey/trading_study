@@ -256,6 +256,7 @@ class ReviewHistoryItem(BaseModel):
     capture_id: str
     created_at: str
     symbol: str
+    symbol_name: str = ""
     timeframe: str
     decision_time_exchange: str
     hypothesis: str
@@ -292,6 +293,7 @@ def _register_review_history_routes(app: FastAPI, services: AppServices) -> None
                     capture_id=str(capture.id),
                     created_at=capture.created_at.isoformat(),
                     symbol=confirmed.symbol,
+                    symbol_name=capture.extracted.symbol_name_candidate,
                     timeframe=confirmed.timeframe,
                     decision_time_exchange=confirmed.decision_time_exchange,
                     hypothesis=(

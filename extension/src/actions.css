@@ -346,14 +346,30 @@
   cursor: default;
 }
 
+.fj-history-instrument {
+  flex: 1;
+  overflow: hidden;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fj-history-timeframe {
+  padding: 1px 5px;
+  color: var(--fj-accent);
+  white-space: nowrap;
+  border: 1px solid var(--fj-control-border);
+  border-radius: 8px;
+}
+
 .fj-history-time {
   color: var(--fj-muted);
   white-space: nowrap;
 }
 
 .fj-history-hypothesis {
-  flex: 1;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .fj-history-assessment {

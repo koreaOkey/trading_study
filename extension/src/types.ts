@@ -42,6 +42,7 @@ export type ExtractedMetadata = {
   readonly source_url: string
   readonly page_title: string
   readonly symbol_candidate: string
+  readonly symbol_name_candidate: string
   readonly timeframe_candidate: string
   readonly decision_time_candidate: string
   readonly replay_active: boolean
@@ -52,6 +53,7 @@ export const extractedMetadataSchema = z.object({
   source_url: z.string().url().max(2_048),
   page_title: z.string().min(1).max(240),
   symbol_candidate: z.string().max(32),
+  symbol_name_candidate: z.string().max(80).optional().default(""),
   timeframe_candidate: z.string().max(16),
   decision_time_candidate: z.union([z.literal(""), timezoneAwareIsoSchema]).default(""),
   replay_active: z.boolean().default(false),

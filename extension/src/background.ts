@@ -232,7 +232,6 @@ const recentReviewsResponseSchema = z.object({
 
 const getRecentReviews = async (
   symbol: string,
-  timeframe: string,
   limit: number,
   apiBaseUrl: string,
   apiToken: string,
@@ -241,7 +240,7 @@ const getRecentReviews = async (
   const rawResponse = await ky
     .get(`${apiBaseUrl}/api/reviews`, {
       headers: headersFor(apiToken),
-      searchParams: { symbol, timeframe, limit },
+      searchParams: { symbol, limit },
       retry: { limit: 1 },
       timeout: 10_000,
     })
@@ -329,7 +328,6 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
           sendResponse(
             await getRecentReviews(
               parsed.data.symbol,
-              parsed.data.timeframe,
               parsed.data.limit,
               settings.apiBaseUrl,
               settings.apiToken,

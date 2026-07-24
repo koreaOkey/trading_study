@@ -7,6 +7,7 @@ const item = (overrides: Partial<ReviewHistoryItem> = {}): ReviewHistoryItem => 
   capture_id: "cap-1",
   created_at: "2026-07-23T05:00:00+00:00",
   symbol: "214450",
+  symbol_name: "",
   timeframe: "240",
   decision_time_exchange: "2026-07-03T12:59:59+09:00",
   hypothesis: "golden_cross_expected",

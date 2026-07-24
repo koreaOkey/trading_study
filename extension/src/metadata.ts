@@ -44,6 +44,13 @@ export const extractSymbolCandidate = (): string => {
   return symbolFromRaw(document.title)
 }
 
+export const extractSymbolNameCandidate = (): string => {
+  // TradingView renders the instrument description as the main series legend
+  // title; best-effort only, so an empty result is fine (ticker still shows).
+  const legend = document.querySelector<HTMLElement>('[data-name="legend-source-title"]')
+  return (legend?.textContent ?? "").trim().slice(0, 80)
+}
+
 export const normalizeTimeframeCandidate = (raw: string): string => {
   const compact = raw.trim().replace(/\s+/gu, " ")
   const upper = compact.toUpperCase()
@@ -188,6 +195,7 @@ const buildExtractedMetadata = (candidate: CandidateMetadata): ExtractedMetadata
   source_url: window.location.href,
   page_title: document.title || "TradingView",
   symbol_candidate: candidate.symbol,
+  symbol_name_candidate: extractSymbolNameCandidate(),
   timeframe_candidate: candidate.timeframe,
   decision_time_candidate: candidate.decisionTime,
   replay_active: candidate.replayActive,

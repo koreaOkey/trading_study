@@ -74,6 +74,7 @@ class ExtractedMetadata(BaseModel):
     source_url: HttpUrl
     page_title: str = Field(min_length=1, max_length=240)
     symbol_candidate: str = Field(default="", max_length=32)
+    symbol_name_candidate: str = Field(default="", max_length=80)
     timeframe_candidate: str = Field(default="", max_length=16)
     decision_time_candidate: str = Field(default="", max_length=40)
     replay_active: bool = False
