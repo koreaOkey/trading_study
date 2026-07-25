@@ -64,10 +64,44 @@ describe("csv coverage badge", () => {
   })
 
   test("coverage ending before the scoring window asks for a fresh export", () => {
-    const badge = coverageBadge("240", DECISION_TIME, true, coverage("2026-07-04T15:00:00+09:00"))
+    const badge = coverageBadge(
+      "240",
+      DECISION_TIME,
+      true,
+      coverage("2026-07-04T15:00:00+09:00"),
+      new Date("2026-07-25T10:00:00+09:00"),
+    )
     expect(badge.state).toBe("needed")
     expect(badge.registerDisabled).toBe(false)
     expect(badge.extractDisabled).toBe(false)
+  })
+
+  test("live decision with coverage through the newest bar is covered", () => {
+    // Monday morning after a full-history extract on Friday: the scoring
+    // window lies in the future, so no extract can reach it — the badge must
+    // not keep demanding one.
+    const badge = coverageBadge(
+      "240",
+      "2026-07-27T10:00:00+09:00",
+      true,
+      coverage("2026-07-24T13:00:00+09:00"),
+      new Date("2026-07-27T10:00:00+09:00"),
+    )
+    expect(badge.state).toBe("covered")
+    expect(badge.registerDisabled).toBe(true)
+    expect(badge.extractDisabled).toBe(false)
+  })
+
+  test("live decision with stale coverage still asks for an export", () => {
+    const badge = coverageBadge(
+      "240",
+      "2026-07-27T10:00:00+09:00",
+      true,
+      coverage("2026-07-15T13:00:00+09:00"),
+      new Date("2026-07-27T10:00:00+09:00"),
+    )
+    expect(badge.state).toBe("needed")
+    expect(badge.registerDisabled).toBe(false)
   })
 })
 

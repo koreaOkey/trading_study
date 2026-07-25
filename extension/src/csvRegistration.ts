@@ -54,6 +54,7 @@ export const coverageBadge = (
   decisionTimeIso: string,
   registered: boolean,
   coverage: BarSeriesCoverage | null,
+  now: Date = new Date(),
 ): CsvBadge => {
   const minutes = parseTimeframeMinutes(timeframe)
   if (minutes === null) {
@@ -78,6 +79,25 @@ export const coverageBadge = (
     return {
       state: "covered",
       message: `봉 등록됨 ✓ 채점 구간 커버 (${coverage.bar_count}봉, ${coverage.last_time_exchange.slice(0, 10)}까지)`,
+      registerDisabled: true,
+      extractDisabled: false,
+    }
+  }
+  // A live-chart decision puts requiredEnd in the future, where bars cannot
+  // exist yet — extraction can only ever reach the newest completed bar. If
+  // coverage is already that fresh, a re-extract adds nothing; scoring
+  // catches up as bars complete. The allowance spans the worst regular gap:
+  // Friday's last 4h bar to Monday's first completed one is three days.
+  const freshnessAllowanceMs = 3 * DAY_MS + 2 * minutes * 60_000
+  if (
+    requiredEnd !== null &&
+    !Number.isNaN(coverageEnd.getTime()) &&
+    requiredEnd > now &&
+    now.getTime() - coverageEnd.getTime() <= freshnessAllowanceMs
+  ) {
+    return {
+      state: "covered",
+      message: `봉 최신까지 등록됨 ✓ (${coverage.bar_count}봉) — 채점은 새 봉이 쌓이는 대로`,
       registerDisabled: true,
       extractDisabled: false,
     }
