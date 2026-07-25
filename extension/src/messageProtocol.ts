@@ -60,6 +60,22 @@ export type RecentReviewsMessage = {
   readonly limit: number
 }
 
+export type AskChartQueryMessage = {
+  readonly kind: "ask-chart-query"
+  readonly settings: ExtensionSettings
+  readonly symbol: string
+  readonly timeframe: string
+  readonly question: string
+}
+
+export type ListChartQueriesMessage = {
+  readonly kind: "list-chart-queries"
+  readonly settings: ExtensionSettings
+  readonly symbol: string
+  readonly timeframe: string
+  readonly limit: number
+}
+
 export type CaptureMessage =
   | CheckHealthMessage
   | SaveCaptureMessage
@@ -68,6 +84,8 @@ export type CaptureMessage =
   | RegisterBarSeriesMessage
   | BarCoverageMessage
   | RecentReviewsMessage
+  | AskChartQueryMessage
+  | ListChartQueriesMessage
 
 export type HealthMessageResponse =
   | { readonly ok: true; readonly status: number }
@@ -151,6 +169,39 @@ export const recentReviewsMessageResponseSchema = z.discriminatedUnion("ok", [
 
 export type RecentReviewsMessageResponse = z.infer<typeof recentReviewsMessageResponseSchema>
 
+export const chartQueryRecordSchema = z.object({
+  query_id: z.string(),
+  created_at_utc: z.string(),
+  symbol: z.string(),
+  timeframe: z.string(),
+  question: z.string(),
+  status: z.enum(["answered", "failed"]),
+  answer: z.string().optional().default(""),
+  error_code: z.string().optional().default(""),
+  model: z.string().optional().default(""),
+  bar_count: z.number().int().nonnegative().optional().default(0),
+  first_bar_exchange: z.string().optional().default(""),
+  last_bar_exchange: z.string().optional().default(""),
+})
+
+export type ChartQueryRecord = z.infer<typeof chartQueryRecordSchema>
+
+export const askChartQueryMessageResponseSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true), query: chartQueryRecordSchema }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+])
+
+export type AskChartQueryMessageResponse = z.infer<typeof askChartQueryMessageResponseSchema>
+
+export const listChartQueriesMessageResponseSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true), items: z.array(chartQueryRecordSchema) }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+])
+
+export type ListChartQueriesMessageResponse = z.infer<
+  typeof listChartQueriesMessageResponseSchema
+>
+
 const settingsSchema = z.object({ apiBaseUrl: z.string(), apiToken: z.string() })
 
 export const extensionMessageSchema = z.discriminatedUnion("kind", [
@@ -188,6 +239,20 @@ export const extensionMessageSchema = z.discriminatedUnion("kind", [
     kind: z.literal("get-recent-reviews"),
     settings: settingsSchema,
     symbol: z.string().min(1).max(32),
+    limit: z.number().int().min(1).max(50),
+  }),
+  z.object({
+    kind: z.literal("ask-chart-query"),
+    settings: settingsSchema,
+    symbol: z.string().min(1).max(32),
+    timeframe: z.string().min(1).max(16),
+    question: z.string().min(1).max(2_000),
+  }),
+  z.object({
+    kind: z.literal("list-chart-queries"),
+    settings: settingsSchema,
+    symbol: z.string().min(1).max(32),
+    timeframe: z.string().min(1).max(16),
     limit: z.number().int().min(1).max(50),
   }),
 ])

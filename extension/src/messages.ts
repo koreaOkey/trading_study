@@ -1,14 +1,18 @@
 import {
+  askChartQueryMessageResponseSchema,
   barCoverageMessageResponseSchema,
   healthMessageResponseSchema,
+  listChartQueriesMessageResponseSchema,
   recentReviewsMessageResponseSchema,
   registerBarSeriesMessageResponseSchema,
   reviewCaptureMessageResponseSchema,
   saveCaptureMessageResponseSchema,
 } from "./messageProtocol"
 import type {
+  AskChartQueryMessageResponse,
   BarCoverageMessageResponse,
   HealthMessageResponse,
+  ListChartQueriesMessageResponse,
   RecentReviewsMessageResponse,
   RegisterBarSeriesMessageResponse,
   ReviewCaptureMessageResponse,
@@ -98,6 +102,40 @@ export const getRecentReviews = async (
       kind: "get-recent-reviews",
       settings,
       symbol,
+      limit,
+    }),
+  )
+}
+
+export const askChartQuery = async (
+  settings: ExtensionSettings,
+  symbol: string,
+  timeframe: string,
+  question: string,
+): Promise<AskChartQueryMessageResponse> => {
+  return askChartQueryMessageResponseSchema.parse(
+    await chrome.runtime.sendMessage({
+      kind: "ask-chart-query",
+      settings,
+      symbol,
+      timeframe,
+      question,
+    }),
+  )
+}
+
+export const listChartQueries = async (
+  settings: ExtensionSettings,
+  symbol: string,
+  timeframe: string,
+  limit = 20,
+): Promise<ListChartQueriesMessageResponse> => {
+  return listChartQueriesMessageResponseSchema.parse(
+    await chrome.runtime.sendMessage({
+      kind: "list-chart-queries",
+      settings,
+      symbol,
+      timeframe,
       limit,
     }),
   )

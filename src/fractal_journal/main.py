@@ -5,7 +5,7 @@ from typing import Annotated, ClassVar
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from fractal_journal.ai_review import DecisionReviewResult, DecisionReviewStatus
 from fractal_journal.bar_series import (
@@ -16,7 +16,17 @@ from fractal_journal.bar_series import (
     RegisteredBarsProvider,
     parse_tradingview_csv,
 )
+from fractal_journal.chart_query import (
+    ChartQueryError,
+    ChartQueryRecord,
+    FileChartQueryStore,
+    new_query_record,
+)
 from fractal_journal.config import Settings
+from fractal_journal.hermes_query import (
+    HermesChartQueryService,
+    create_chart_query_service,
+)
 from fractal_journal.hermes_review import DecisionReviewer, create_hermes_reviewer
 from fractal_journal.kis_auth import load_credentials
 from fractal_journal.kis_provider import KisOhlcvProvider
@@ -48,6 +58,8 @@ class AppServices:
     provider: OhlcvProvider
     series_store: FileBarSeriesStore
     review_service: DecisionReviewService
+    query_store: FileChartQueryStore
+    query_service: HermesChartQueryService
 
 
 def create_app(
@@ -55,6 +67,7 @@ def create_app(
     *,
     provider: OhlcvProvider | None = None,
     reviewer: DecisionReviewer | None = None,
+    query_service: HermesChartQueryService | None = None,
 ) -> FastAPI:
     resolved_settings = settings or Settings()
     store = FileCaptureStore(
@@ -80,6 +93,8 @@ def create_app(
         provider=evidence_provider,
         series_store=series_store,
         review_service=DecisionReviewService(evidence_provider, resolved_reviewer),
+        query_store=FileChartQueryStore(resolved_settings.data_dir),
+        query_service=query_service or create_chart_query_service(resolved_settings),
     )
 
     @asynccontextmanager
@@ -109,6 +124,7 @@ def _register_routes(app: FastAPI, services: AppServices) -> None:
     _register_score_routes(app, services)
     _register_bar_series_routes(app, services)
     _register_review_history_routes(app, services)
+    _register_chart_query_routes(app, services)
 
 
 def _register_core_routes(app: FastAPI, services: AppServices) -> None:
@@ -367,6 +383,94 @@ def _register_bar_series_routes(app: FastAPI, services: AppServices) -> None:
         return BarSeriesCoverageResponse(
             registered=coverage is not None,
             coverage=coverage,
+        )
+
+
+class ChartQueryCreateRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    symbol: str = Field(min_length=1, max_length=32)
+    timeframe: str = Field(min_length=1, max_length=16)
+    question: str = Field(min_length=1, max_length=2_000)
+    replay_active: bool = False
+
+
+class ChartQueryResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    query: ChartQueryRecord
+
+
+class ChartQueryListResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    items: tuple[ChartQueryRecord, ...]
+
+
+def _register_chart_query_routes(app: FastAPI, services: AppServices) -> None:
+    @app.post("/api/queries", status_code=status.HTTP_201_CREATED)
+    def create_chart_query(
+        payload: ChartQueryCreateRequest,
+        _: Annotated[None, Depends(_check_write_auth(services))],
+    ) -> ChartQueryResponse:
+        # Replay answers would blend bars past the replay cursor into Lee's
+        # training view; the extension blocks this too, but the backend is the
+        # authority.
+        if payload.replay_active:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="replay_active",
+            )
+        bars = services.series_store.load(payload.symbol, payload.timeframe)
+        if not bars:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="series_unregistered",
+            )
+        question = payload.question.strip()
+        try:
+            answered = services.query_service.ask(
+                symbol=payload.symbol,
+                timeframe=payload.timeframe,
+                question=question,
+                bars=bars,
+            )
+        except ChartQueryError as exc:
+            record = new_query_record(
+                symbol=payload.symbol,
+                timeframe=payload.timeframe,
+                question=question,
+                status="failed",
+                error_code=exc.reason,
+                bars=bars,
+            )
+            services.query_store.append(record)
+            return ChartQueryResponse(query=record)
+        record = new_query_record(
+            symbol=payload.symbol,
+            timeframe=payload.timeframe,
+            question=question,
+            status="answered",
+            answer=answered.answer,
+            model=answered.model,
+            bars=bars,
+        )
+        services.query_store.append(record)
+        return ChartQueryResponse(query=record)
+
+    @app.get("/api/queries")
+    async def list_chart_queries(
+        _: Annotated[None, Depends(_check_auth(services))],
+        symbol: Annotated[str | None, Query(max_length=32)] = None,
+        timeframe: Annotated[str | None, Query(max_length=16)] = None,
+        limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    ) -> ChartQueryListResponse:
+        return ChartQueryListResponse(
+            items=services.query_store.list_queries(
+                symbol=symbol,
+                timeframe=timeframe,
+                limit=limit,
+            ),
         )
 
 

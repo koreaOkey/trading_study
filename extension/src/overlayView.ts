@@ -31,7 +31,12 @@ const overlayMarkup = (): string => `
       <div><div class="fj-kicker">Fractal Replay</div><strong>판단 기록</strong></div>
       <button class="fj-icon" type="button" data-close-sheet aria-label="Close">×</button>
     </header>
+    <div class="fj-tabs" role="tablist">
+      <button type="button" role="tab" data-tab="journal" aria-selected="true">판단 기록</button>
+      <button type="button" role="tab" data-tab="query" aria-selected="false">자유 질의</button>
+    </div>
     <div class="fj-sheet-scroll">
+      <div class="fj-tab-panel" data-tab-panel="journal">
       <section class="fj-section">
         <div class="fj-section-title">자동 추출 값 · 읽기 전용</div>
         <div class="fj-readonly" data-extracted-candidate></div>
@@ -87,6 +92,26 @@ const overlayMarkup = (): string => `
         </div>
         <div class="fj-history-list" data-history-list></div>
       </section>
+      </div>
+      <div class="fj-tab-panel" data-tab-panel="query" hidden>
+        <section class="fj-section">
+          <div class="fj-section-title">자유 질의 · 등록된 전체 봉 기준</div>
+          <div class="fj-query-guard" data-query-guard hidden>리플레이 중에는 질의할 수 없습니다 — 커서 이후(미래) 정보가 답변에 섞이는 것을 막기 위해서입니다.</div>
+          <label class="fj-note-label">질문
+            <textarea data-query-input maxlength="2000" placeholder="예: 전체 이력에서 골든크로스 이후 40봉 수익률 분포는? (매매지시 없이 통계·구조 서술로 답합니다)"></textarea>
+          </label>
+          <button class="fj-register-csv" type="button" data-query-submit>질의 보내기</button>
+          <div class="fj-csv-status" data-query-status data-csv-state="unknown" role="status" aria-live="polite"></div>
+          <div class="fj-query-answer" data-query-answer hidden></div>
+        </section>
+        <section class="fj-history-section">
+          <div class="fj-history-header">
+            <span class="fj-section-title">질의 이력</span>
+            <button class="fj-history-load" type="button" data-query-refresh>불러오기</button>
+          </div>
+          <div class="fj-history-list" data-query-list></div>
+        </section>
+      </div>
     </div>
     <div class="fj-actions">
       <button class="fj-submit" type="button" data-submit-review data-phase="idle">리뷰 제출</button>

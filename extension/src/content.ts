@@ -1,4 +1,5 @@
 import { createCaptureWorkflow } from "./captureWorkflow"
+import { bindChartQueryTab } from "./chartQueryTab"
 import { bindCsvRegistration } from "./csvRegistration"
 import { getInputValue, setState } from "./dom"
 import type { OverlayState } from "./dom"
@@ -45,6 +46,8 @@ const mount = async (): Promise<void> => {
   bindJournalChrome(root, workflow, draft)
   csvRegistration = bindCsvRegistration(root, workflow)
   bindReviewHistory(root)
+  const queryTab = bindChartQueryTab(root)
+  queryTab.onReplayState(candidate.replayActive)
   document.documentElement.append(host)
   setState(root, initialState)
   await restoreDraft(root)
@@ -55,6 +58,7 @@ const mount = async (): Promise<void> => {
   bindTradingViewBridge((nextCandidate) => {
     candidate = applyCandidate(root, nextCandidate)
     syncSubmitValidity()
+    queryTab.onReplayState(candidate.replayActive)
     void csvRegistration?.refresh()
   })
   await bindDraggableOverlay(root)

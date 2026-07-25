@@ -48,6 +48,11 @@ class Settings(BaseSettings):
         default=Path("/home/lee/.hermes/profiles/trading"),
         validation_alias="TRFJ_HERMES_HOME",
     )
+    hermes_query_worker_path: Path = Field(
+        default=Path("/home/lee/tradingview-fractal-replay-journal")
+        / "src/fractal_journal/hermes_query_worker.py",
+        validation_alias="TRFJ_HERMES_QUERY_WORKER_PATH",
+    )
     hermes_timeout_seconds: float = Field(
         default=180.0,
         ge=1.0,

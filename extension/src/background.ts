@@ -1,4 +1,4 @@
-import ky from "ky"
+import ky, { HTTPError } from "ky"
 import { z } from "zod"
 
 import {
@@ -8,12 +8,15 @@ import {
 } from "./backgroundCapture"
 import {
   barSeriesCoverageSchema,
+  chartQueryRecordSchema,
   extensionMessageSchema,
   reviewHistoryItemSchema,
 } from "./messageProtocol"
 import type {
+  AskChartQueryMessageResponse,
   BarCoverageMessageResponse,
   HealthMessageResponse,
+  ListChartQueriesMessageResponse,
   RecentReviewsMessageResponse,
   RegisterBarSeriesMessageResponse,
   ReviewCaptureMessageResponse,
@@ -248,6 +251,66 @@ const getRecentReviews = async (
   return { ok: true, items: recentReviewsResponseSchema.parse(rawResponse).items }
 }
 
+const askChartQueryResponseSchema = z.object({ query: chartQueryRecordSchema })
+
+const askChartQuery = async (
+  symbol: string,
+  timeframe: string,
+  question: string,
+  apiBaseUrl: string,
+  apiToken: string,
+): Promise<AskChartQueryMessageResponse> => {
+  requireLoopback(apiBaseUrl)
+  try {
+    const rawResponse = await ky
+      .post(`${apiBaseUrl}/api/queries`, {
+        headers: headersFor(apiToken),
+        json: { symbol, timeframe, question },
+        retry: { limit: 0 },
+        // The answer is a full Hermes invocation over the full-history context;
+        // reuse the review budget rather than the short data timeouts.
+        timeout: REVIEW_HTTP_TIMEOUT,
+      })
+      .json<unknown>()
+    return { ok: true, query: askChartQueryResponseSchema.parse(rawResponse).query }
+  } catch (error) {
+    if (error instanceof HTTPError) {
+      const body: unknown = await error.response.json().catch(() => null)
+      const detail =
+        typeof body === "object" && body !== null && "detail" in body
+          ? (body as { detail: unknown }).detail
+          : null
+      if (typeof detail === "string" && detail.length > 0) {
+        return { ok: false, error: detail }
+      }
+    }
+    throw error
+  }
+}
+
+const listChartQueriesResponseSchema = z.object({
+  items: z.array(chartQueryRecordSchema),
+})
+
+const listChartQueries = async (
+  symbol: string,
+  timeframe: string,
+  limit: number,
+  apiBaseUrl: string,
+  apiToken: string,
+): Promise<ListChartQueriesMessageResponse> => {
+  requireLoopback(apiBaseUrl)
+  const rawResponse = await ky
+    .get(`${apiBaseUrl}/api/queries`, {
+      headers: headersFor(apiToken),
+      searchParams: { symbol, timeframe, limit },
+      retry: { limit: 1 },
+      timeout: 10_000,
+    })
+    .json<unknown>()
+  return { ok: true, items: listChartQueriesResponseSchema.parse(rawResponse).items }
+}
+
 const reviewCapture = async (
   captureId: string,
   apiBaseUrl: string,
@@ -328,6 +391,28 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
           sendResponse(
             await getRecentReviews(
               parsed.data.symbol,
+              parsed.data.limit,
+              settings.apiBaseUrl,
+              settings.apiToken,
+            ),
+          )
+          return
+        case "ask-chart-query":
+          sendResponse(
+            await askChartQuery(
+              parsed.data.symbol,
+              parsed.data.timeframe,
+              parsed.data.question,
+              settings.apiBaseUrl,
+              settings.apiToken,
+            ),
+          )
+          return
+        case "list-chart-queries":
+          sendResponse(
+            await listChartQueries(
+              parsed.data.symbol,
+              parsed.data.timeframe,
               parsed.data.limit,
               settings.apiBaseUrl,
               settings.apiToken,
