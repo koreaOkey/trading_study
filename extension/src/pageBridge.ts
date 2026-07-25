@@ -1,10 +1,11 @@
 import {
   PAGE_BARS_EVENT,
+  PAGE_BARS_PROGRESS_EVENT,
   PAGE_BARS_REQUEST_EVENT,
   PAGE_METADATA_EVENT,
   PAGE_METADATA_REQUEST_EVENT,
 } from "./bridgeProtocol"
-import type { PageBarsPayload, PageChartMetadata } from "./bridgeProtocol"
+import type { PageBarsPayload, PageBarsProgress, PageChartMetadata } from "./bridgeProtocol"
 
 type WatchedValue<T> = {
   readonly value: () => T
@@ -114,8 +115,16 @@ type SeriesDataApi = {
   readonly bars: () => SeriesBarsApi
 }
 
+type SeriesApi = {
+  readonly data: () => SeriesDataApi
+  readonly endOfData?: () => boolean
+  readonly isLoading?: () => boolean
+}
+
 type SeriesCapableChart = ExportCapableChart & {
-  readonly getSeries?: () => { readonly data: () => SeriesDataApi }
+  readonly getSeries?: () => SeriesApi
+  readonly canZoomOut?: () => boolean
+  readonly executeActionById?: (actionId: string) => void
 }
 
 const SERIES_COLUMNS = ["time", "open", "high", "low", "close", "volume"] as const
@@ -153,7 +162,110 @@ const readSeriesRows = (
 const describeThrown = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
 
-const publishPageBars = async (requestId: string): Promise<void> => {
+// The bars payload schema on the content-script side rejects more than 50k
+// rows, so the loader stops early and the reader keeps the newest rows.
+const MAX_FULL_HISTORY_BARS = 45_000
+const MAX_PAYLOAD_ROWS = 50_000
+const MAX_LOAD_ROUNDS = 150
+const MAX_STALL_ROUNDS = 5
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => window.setTimeout(resolve, ms))
+
+const barCount = (chart: SeriesCapableChart): number => {
+  try {
+    if (typeof chart.getSeries !== "function") {
+      return 0
+    }
+    return chart.getSeries().data().bars().size()
+  } catch {
+    return 0
+  }
+}
+
+// TradingView keeps only the bars a user has scrolled into view in memory and
+// gates the range-loading APIs (setVisibleRange throws "Not implemented"), so
+// the only ungated way to reach full history is to replay the user gestures:
+// ctrl+wheel zoom-out until the zoom limit, then wheel-pan into the past.
+// getSeries().endOfData() reports when the exchange history is exhausted.
+const loadFullHistory = async (
+  chart: SeriesCapableChart,
+  requestId: string,
+): Promise<void> => {
+  const series = typeof chart.getSeries === "function" ? chart.getSeries() : null
+  if (series === null || typeof series.endOfData !== "function") {
+    return
+  }
+  const canvas =
+    document.querySelector<HTMLCanvasElement>(".chart-markup-table canvas") ??
+    document.querySelector("canvas")
+  if (canvas === null || barCount(chart) === 0) {
+    return
+  }
+  const endOfData = (): boolean => {
+    try {
+      return series.endOfData?.() === true
+    } catch {
+      return false
+    }
+  }
+  const isLoading = (): boolean => {
+    try {
+      return series.isLoading?.() === true
+    } catch {
+      return false
+    }
+  }
+  const rect = canvas.getBoundingClientRect()
+  const wheel = (init: WheelEventInit): void => {
+    canvas.dispatchEvent(
+      new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+        ...init,
+      }),
+    )
+  }
+  let stall = 0
+  for (let round = 0; round < MAX_LOAD_ROUNDS && stall < MAX_STALL_ROUNDS; round += 1) {
+    if (endOfData() || barCount(chart) >= MAX_FULL_HISTORY_BARS) {
+      break
+    }
+    const before = barCount(chart)
+    if (chart.canZoomOut?.() === true) {
+      for (let i = 0; i < 4; i += 1) {
+        wheel({ deltaY: 120, ctrlKey: true })
+      }
+    } else {
+      for (let i = 0; i < 12; i += 1) {
+        wheel({ deltaX: -300 })
+      }
+    }
+    for (let wait = 0; wait < 40 && isLoading(); wait += 1) {
+      await sleep(250)
+    }
+    await sleep(300)
+    stall = barCount(chart) === before ? stall + 1 : 0
+    const progress: PageBarsProgress = { requestId, loadedBars: barCount(chart) }
+    document.dispatchEvent(
+      new CustomEvent<PageBarsProgress>(PAGE_BARS_PROGRESS_EVENT, { detail: progress }),
+    )
+  }
+}
+
+// The load loop leaves the viewport zoomed out deep in the past; jump back to
+// the latest bar so the chart looks untouched. Cosmetic only — never throw.
+const restoreDefaultView = (chart: SeriesCapableChart): void => {
+  try {
+    chart.executeActionById?.("timeScaleReset")
+  } catch {
+    // ignored
+  }
+}
+
+const publishPageBars = async (requestId: string, fullHistory: boolean): Promise<void> => {
   const base: Omit<PageBarsPayload, "error"> = {
     requestId,
     symbol: "",
@@ -168,6 +280,15 @@ const publishPageBars = async (requestId: string): Promise<void> => {
       throw new Error("tradingview_api_unavailable")
     }
     const chart = api.activeChart() as SeriesCapableChart
+    if (fullHistory) {
+      try {
+        await loadFullHistory(chart, requestId)
+      } catch (error) {
+        // A partial history is still a valid extract; registration merges, so
+        // the next click resumes from wherever this attempt stopped.
+        console.warn("[Fractal Replay Journal] full-history load stopped", error)
+      }
+    }
     let columns: readonly string[] | null = null
     let rows: ReadonlyArray<ReadonlyArray<number | null>> | null = null
     let exportError: string | null = null
@@ -201,8 +322,11 @@ const publishPageBars = async (requestId: string): Promise<void> => {
       symbol: chart.symbol(),
       timeframe: chart.resolution(),
       columns: [...columns],
-      rows,
+      rows: rows.length > MAX_PAYLOAD_ROWS ? rows.slice(-MAX_PAYLOAD_ROWS) : rows,
       error: null,
+    }
+    if (fullHistory) {
+      restoreDefaultView(chart)
     }
   } catch (error) {
     detail = { ...base, error: describeThrown(error) }
@@ -218,7 +342,9 @@ const requestBars = (event: Event): void => {
     "requestId" in event.detail &&
     typeof event.detail.requestId === "string"
   ) {
-    void publishPageBars(event.detail.requestId)
+    const fullHistory =
+      "fullHistory" in event.detail && event.detail.fullHistory === true
+    void publishPageBars(event.detail.requestId, fullHistory)
   }
 }
 

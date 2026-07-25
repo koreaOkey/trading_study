@@ -17,6 +17,11 @@ export type CsvBadge = {
   readonly state: "not-needed" | "covered" | "needed" | "unknown"
   readonly message: string
   readonly registerDisabled: boolean
+  // Extraction now pulls the full exchange history and registration merges,
+  // so re-extracting is useful (backtesting, appending fresh bars) even when
+  // the scoring window is already covered. Only daily charts opt out — those
+  // are served by KIS directly.
+  readonly extractDisabled: boolean
 }
 
 export const parseTimeframeMinutes = (timeframe: string): number | null => {
@@ -56,13 +61,15 @@ export const coverageBadge = (
       state: "not-needed",
       message: "CSV 불필요 — 일봉은 KIS로 자동 처리",
       registerDisabled: true,
+      extractDisabled: true,
     }
   }
   if (!registered || coverage === null) {
     return {
       state: "needed",
-      message: "CSV 미등록 — 세션 종료 후 차트를 추출하세요",
+      message: "봉 미등록 — 리플레이 전에 전체 차트를 추출해두세요",
       registerDisabled: false,
+      extractDisabled: false,
     }
   }
   const requiredEnd = requiredCoverageEnd(decisionTimeIso, minutes)
@@ -70,14 +77,16 @@ export const coverageBadge = (
   if (requiredEnd !== null && !Number.isNaN(coverageEnd.getTime()) && coverageEnd >= requiredEnd) {
     return {
       state: "covered",
-      message: `CSV 등록됨 ✓ 추출 불필요 (${coverage.bar_count}봉, ${coverage.last_time_exchange.slice(0, 10)}까지)`,
+      message: `봉 등록됨 ✓ 채점 구간 커버 (${coverage.bar_count}봉, ${coverage.last_time_exchange.slice(0, 10)}까지)`,
       registerDisabled: true,
+      extractDisabled: false,
     }
   }
   return {
     state: "needed",
-    message: `CSV가 ${coverage.last_time_exchange.slice(0, 10)}까지만 등록됨 — 채점 구간까지 다시 추출하세요`,
+    message: `봉이 ${coverage.last_time_exchange.slice(0, 10)}까지만 등록됨 — 다시 추출하세요`,
     registerDisabled: false,
+    extractDisabled: false,
   }
 }
 
@@ -110,11 +119,12 @@ const applyBadge = (root: HTMLElement, badge: CsvBadge): void => {
     status.textContent = badge.message
     status.dataset["csvState"] = badge.state
   }
-  root
-    .querySelectorAll<HTMLButtonElement>("[data-extract-csv], [data-register-csv]")
-    .forEach((button) => {
-      button.disabled = badge.registerDisabled
-    })
+  root.querySelectorAll<HTMLButtonElement>("[data-register-csv]").forEach((button) => {
+    button.disabled = badge.registerDisabled
+  })
+  root.querySelectorAll<HTMLButtonElement>("[data-extract-csv]").forEach((button) => {
+    button.disabled = badge.extractDisabled
+  })
 }
 
 const chartKeys = (root: HTMLElement): { symbol: string; timeframe: string } => ({
@@ -231,7 +241,7 @@ export const bindCsvRegistration = (
   }
 
   const extract = async (): Promise<void> => {
-    setStatus("차트 데이터 읽는 중…")
+    setStatus("전체 기간 로드 시작…")
     // A replay-mode series stops at the cursor, so the scoring window after
     // the decision would be missing from the extract.
     const candidate = await requestFreshPageMetadata()
@@ -239,7 +249,12 @@ export const bindCsvRegistration = (
       setStatus("리플레이를 먼저 종료하세요 — 판단 이후 봉이 포함돼야 합니다", "needed")
       return
     }
-    const bars: PageBars | null = await requestPageBars()
+    const bars: PageBars | null = await requestPageBars({
+      fullHistory: true,
+      onProgress: (loadedBars) => {
+        setStatus(`과거 봉 로드 중… ${loadedBars.toLocaleString("ko-KR")}봉`, "unknown", 90_000)
+      },
+    })
     if (bars === null || bars.error !== null || bars.rows.length === 0) {
       setStatus(
         `차트 추출 실패 (${bars?.error ?? "응답 없음"}) — "CSV 파일 등록"을 사용하세요`,

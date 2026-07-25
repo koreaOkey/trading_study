@@ -41,12 +41,14 @@ describe("csv coverage badge", () => {
     const badge = coverageBadge("1D", DECISION_TIME, false, null)
     expect(badge.state).toBe("not-needed")
     expect(badge.registerDisabled).toBe(true)
+    expect(badge.extractDisabled).toBe(true)
   })
 
   test("unregistered chart asks for an export", () => {
     const badge = coverageBadge("240", DECISION_TIME, false, null)
     expect(badge.state).toBe("needed")
     expect(badge.registerDisabled).toBe(false)
+    expect(badge.extractDisabled).toBe(false)
   })
 
   test("coverage past the scoring window disables the register button", () => {
@@ -55,10 +57,17 @@ describe("csv coverage badge", () => {
     expect(badge.registerDisabled).toBe(true)
   })
 
+  test("covered coverage still allows a full-history re-extract", () => {
+    const badge = coverageBadge("240", DECISION_TIME, true, coverage("2026-12-30T15:00:00+09:00"))
+    expect(badge.state).toBe("covered")
+    expect(badge.extractDisabled).toBe(false)
+  })
+
   test("coverage ending before the scoring window asks for a fresh export", () => {
     const badge = coverageBadge("240", DECISION_TIME, true, coverage("2026-07-04T15:00:00+09:00"))
     expect(badge.state).toBe("needed")
     expect(badge.registerDisabled).toBe(false)
+    expect(badge.extractDisabled).toBe(false)
   })
 })
 

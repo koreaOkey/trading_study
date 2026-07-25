@@ -27,4 +27,12 @@ export type PageBarsPayload = {
 
 export type PageBarsRequest = {
   readonly requestId: string
+  readonly fullHistory?: boolean
+}
+
+export const PAGE_BARS_PROGRESS_EVENT = "fractal-replay-journal:page-bars-progress"
+
+export type PageBarsProgress = {
+  readonly requestId: string
+  readonly loadedBars: number
 }

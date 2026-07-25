@@ -2,6 +2,7 @@ import { z } from "zod"
 
 import {
   PAGE_BARS_EVENT,
+  PAGE_BARS_PROGRESS_EVENT,
   PAGE_BARS_REQUEST_EVENT,
   PAGE_METADATA_EVENT,
   PAGE_METADATA_REQUEST_EVENT,
@@ -90,11 +91,28 @@ const pageBarsSchema = z.object({
 
 export type PageBars = z.infer<typeof pageBarsSchema>
 
-export const requestPageBars = (timeoutMs = 15_000): Promise<PageBars | null> =>
+const pageBarsProgressSchema = z.object({
+  requestId: z.string().max(64),
+  loadedBars: z.number().finite().min(0),
+})
+
+export type PageBarsOptions = {
+  readonly fullHistory?: boolean
+  readonly onProgress?: (loadedBars: number) => void
+  readonly timeoutMs?: number
+}
+
+export const requestPageBars = (options: PageBarsOptions = {}): Promise<PageBars | null> =>
   new Promise((resolve) => {
+    // The full-history load walks the chart into the past round by round, so
+    // the deadline is idle-based: every progress event proves the page bridge
+    // is still working and re-arms the timer. An old bridge build that ignores
+    // the flag simply answers fast with whatever bars are loaded.
+    const timeoutMs = options.timeoutMs ?? (options.fullHistory === true ? 60_000 : 15_000)
     const finish = (bars: PageBars | null): void => {
       window.clearTimeout(timeoutId)
       document.removeEventListener(PAGE_BARS_EVENT, handleBars)
+      document.removeEventListener(PAGE_BARS_PROGRESS_EVENT, handleProgress)
       resolve(bars)
     }
     const handleBars = (event: Event): void => {
@@ -106,11 +124,25 @@ export const requestPageBars = (timeoutMs = 15_000): Promise<PageBars | null> =>
         finish(parsed.data)
       }
     }
+    const handleProgress = (event: Event): void => {
+      if (!(event instanceof CustomEvent)) {
+        return
+      }
+      const parsed = pageBarsProgressSchema.safeParse(event.detail)
+      if (parsed.success && parsed.data.requestId === requestId) {
+        window.clearTimeout(timeoutId)
+        timeoutId = window.setTimeout(() => finish(null), timeoutMs)
+        options.onProgress?.(parsed.data.loadedBars)
+      }
+    }
     const requestId = crypto.randomUUID()
-    const timeoutId = window.setTimeout(() => finish(null), timeoutMs)
+    let timeoutId = window.setTimeout(() => finish(null), timeoutMs)
     document.addEventListener(PAGE_BARS_EVENT, handleBars)
+    document.addEventListener(PAGE_BARS_PROGRESS_EVENT, handleProgress)
     document.dispatchEvent(
-      new CustomEvent(PAGE_BARS_REQUEST_EVENT, { detail: { requestId } }),
+      new CustomEvent(PAGE_BARS_REQUEST_EVENT, {
+        detail: { requestId, fullHistory: options.fullHistory === true },
+      }),
     )
   })
 
