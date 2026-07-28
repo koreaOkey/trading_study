@@ -1,7 +1,11 @@
 """Subprocess entry answering free-form chart questions via the trading profile.
 
-Mirrors hermes_worker.py (tool-less, single-turn, stdout-only JSON envelope)
-but returns free Korean prose instead of the review selection envelope.
+Mirrors hermes_worker.py (single-turn LLM calls, stdout-only JSON envelope)
+but drives a sandboxed code-execution loop: the model may answer arbitrary
+statistical questions by writing Python that runs against the registered bars
+CSV in an audited subprocess (see query_compute). Every number in the final
+Korean answer must come from executed output or the supplied context JSON —
+the model never does bar arithmetic itself.
 """
 
 from __future__ import annotations
@@ -12,6 +16,7 @@ import logging
 import os
 import sys
 from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import asdict
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -24,29 +29,49 @@ if str(PROJECT_SRC) not in sys.path:
 from fractal_journal.hermes_worker import (  # noqa: E402
     HERMES_REPOSITORY,
     MAX_PROMPT_BYTES,
+    HermesAgent,
     HermesAgentModule,
     HermesConfigModule,
     HermesRuntimeModule,
     WorkerRuntimeError,
 )
 from fractal_journal.hermes_worker_boundary import WorkerInputError  # noqa: E402
+from fractal_journal.query_compute import (  # noqa: E402
+    ComputationRound,
+    run_query_loop,
+)
 
 CHART_QUERY_SYSTEM_PROMPT: Final = (
     "You are a technical-analysis study assistant for a private trading "
-    "journal. Answer the trader's question in Korean using ONLY the numbers "
-    "in the supplied context JSON (full-history MA cross events with forward "
-    "returns, aggregates, and recent bars). If the question needs a statistic "
-    "that is not present, say exactly which computation is missing instead of "
-    "estimating it. Never issue a buy, sell, entry, exit, position-size, "
-    "stop-loss, or other personalized trading instruction; describe structure "
-    "and statistics only and remind that the final judgment belongs to the "
-    "trader when relevant. Do not use tools, request more data, or claim "
-    "access to bars outside the context. Keep the answer under 450 Korean "
-    "words. Plain text with optional minimal markdown lists."
+    "journal. Answer the trader's question in Korean. The context JSON "
+    "supplies precomputed statistics; for anything beyond them you MUST "
+    "compute the numbers yourself by replying with exactly one fenced "
+    "```python code block (and nothing else in that reply). The block runs "
+    "in a sandbox whose working directory contains the file named in "
+    "bars_csv (columns date,open,high,low,close,volume, oldest first). "
+    "Standard library only; no network, no subprocess, no file writes "
+    "outside the working directory; 20-second limit; print() every result "
+    "you need. After each execution you receive the stdout/stderr and then "
+    "either run one more block or give the final Korean answer with no code "
+    "fence. Every number in the final answer must come from executed output "
+    "or the context JSON — never estimate or compute in your head. If a "
+    "computation keeps failing, say so instead of guessing. Never issue a "
+    "buy, sell, entry, exit, position-size, stop-loss, or other "
+    "personalized trading instruction; describe structure and statistics "
+    "only and remind that the final judgment belongs to the trader when "
+    "relevant. Keep the final answer under 450 Korean words. Plain text "
+    "with optional minimal markdown lists."
 )
 
+MAX_WORKER_COMPUTATIONS: Final = 4
 
-def wrap_query_response(response: str, model: str, prompt: str) -> str:
+
+def wrap_query_response(
+    response: str,
+    model: str,
+    prompt: str,
+    computations: tuple[ComputationRound, ...] = (),
+) -> str:
     first_line = prompt.partition("\n")[0]
     input_hash = (
         first_line.removeprefix("INPUT_SHA256=")
@@ -54,13 +79,27 @@ def wrap_query_response(response: str, model: str, prompt: str) -> str:
         else sha256(prompt.encode()).hexdigest()
     )
     envelope = {
-        "schema_version": "hermes_query_envelope.v1",
+        "schema_version": "hermes_query_envelope.v2",
         "answered_at_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "model": model,
         "input_sha256": input_hash,
         "answer": response.strip(),
+        "computations": [asdict(round_) for round_ in computations],
     }
     return json.dumps(envelope, ensure_ascii=False, separators=(",", ":"))
+
+
+def extract_workdir(prompt: str) -> Path | None:
+    payload_line = prompt.rsplit("\n", 1)[-1]
+    try:
+        payload = json.loads(payload_line)
+    except ValueError:
+        return None
+    workdir = payload.get("workdir") if isinstance(payload, dict) else None
+    if not isinstance(workdir, str):
+        return None
+    path = Path(workdir)
+    return path if path.is_dir() else None
 
 
 def main() -> int:
@@ -82,8 +121,7 @@ def main() -> int:
     return 0
 
 
-def _run_query(prompt: str) -> str:
-    logging.disable(logging.CRITICAL)
+def _build_agent() -> HermesAgent:
     sys.path.insert(0, str(HERMES_REPOSITORY))
 
     config_module = importlib.import_module("hermes_cli.config")
@@ -130,8 +168,28 @@ def _run_query(prompt: str) -> str:
     agent.suppress_status_output = True
     agent.stream_delta_callback = None
     agent.tool_gen_callback = None
-    response = agent.chat(prompt) or ""
-    return wrap_query_response(response, agent.model, prompt)
+    return agent
+
+
+def _run_query(prompt: str) -> str:
+    logging.disable(logging.CRITICAL)
+    agent = _build_agent()
+
+    def chat(message: str) -> str:
+        return agent.chat(message) or ""
+
+    workdir = extract_workdir(prompt)
+    if workdir is None:
+        return wrap_query_response(chat(prompt), agent.model, prompt)
+
+    answer, computations = run_query_loop(
+        chat,
+        base_prompt=prompt,
+        workdir=workdir,
+        python_path=Path(sys.executable),
+        max_rounds=MAX_WORKER_COMPUTATIONS,
+    )
+    return wrap_query_response(answer, agent.model, prompt, computations)
 
 
 if __name__ == "__main__":

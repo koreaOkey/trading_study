@@ -59,6 +59,15 @@ class Settings(BaseSettings):
         le=1800.0,
         validation_alias="TRFJ_HERMES_TIMEOUT_SECONDS",
     )
+    # Free-form queries run a multi-round code-execution loop (up to 4
+    # sandboxed runs plus one LLM call per round), so they get a longer budget
+    # than single-shot reviews.
+    hermes_query_timeout_seconds: float = Field(
+        default=600.0,
+        ge=1.0,
+        le=1800.0,
+        validation_alias="TRFJ_HERMES_QUERY_TIMEOUT_SECONDS",
+    )
     hermes_output_max_bytes: int = Field(
         default=64_000,
         ge=1_024,

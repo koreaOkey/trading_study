@@ -1,20 +1,26 @@
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from fractal_journal.bar_series import FileBarSeriesStore
 from fractal_journal.chart_query import (
     ChartQueryError,
+    ChartQueryRecord,
     FileChartQueryStore,
+    QueryComputation,
     answer_contains_blocked_action,
     build_query_context,
+    build_query_prompt,
     new_query_record,
 )
 from fractal_journal.config import Settings
-from fractal_journal.hermes_query import ChartQueryAnswer
+from fractal_journal.hermes_query import ChartQueryAnswer, HermesChartQueryService
+from fractal_journal.hermes_review import HermesProcessRequest, HermesProcessResult
 from fractal_journal.main import ChartQueryListResponse, ChartQueryResponse, create_app
 from fractal_journal.provider import FixtureOhlcvProvider, OhlcvBar
 
@@ -186,6 +192,131 @@ def test_query_endpoint_blocks_replay_and_unregistered(tmp_path: Path) -> None:
         assert missing.status_code == 404
         assert missing.json()["detail"] == "series_unregistered"
         assert service.questions == []
+
+
+class FakeHermesRunner:
+    """Plays the worker: validates the workdir bars.csv and answers in v2."""
+
+    def __init__(self, *, schema_version: str = "hermes_query_envelope.v2") -> None:
+        self.schema_version = schema_version
+        self.saw_bars_csv = False
+        self.workdir_payload: dict[str, object] = {}
+
+    def run(self, request: HermesProcessRequest) -> HermesProcessResult:
+        prompt = request.stdin.decode("utf-8")
+        input_hash = prompt.partition("\n")[0].removeprefix("INPUT_SHA256=")
+        payload = json.loads(prompt.rsplit("\n", 1)[-1])
+        workdir = payload["workdir"]
+        self.saw_bars_csv = (Path(workdir) / "bars.csv").is_file()
+        self.workdir_payload = payload
+        envelope = {
+            "schema_version": self.schema_version,
+            "answered_at_utc": "2026-07-28T00:00:00Z",
+            "model": "fake-model",
+            "input_sha256": input_hash,
+            "answer": "골든크로스 이후 200SMA 이탈까지 중앙값 12봉이었다",
+            "computations": [
+                {
+                    "code": "print(12)",
+                    "stdout": "12\n",
+                    "stderr": "",
+                    "exit_code": 0,
+                    "timed_out": False,
+                },
+            ],
+        }
+        return HermesProcessResult(
+            exit_code=0,
+            stdout=json.dumps(envelope, ensure_ascii=False).encode(),
+        )
+
+
+def _service(runner: FakeHermesRunner, tmp_path: Path) -> HermesChartQueryService:
+    settings = Settings(
+        data_dir=tmp_path,
+        screenshot_dir=tmp_path / "screenshots",
+        api_token=tmp_path.name,
+    )
+    return HermesChartQueryService(settings=settings, runner=runner)
+
+
+def test_service_ships_bars_csv_and_returns_computations(tmp_path: Path) -> None:
+    runner = FakeHermesRunner()
+    service = _service(runner, tmp_path)
+    answered = service.ask(
+        symbol="214450",
+        timeframe="240",
+        question="골크 후 200SMA 이탈까지 며칠?",
+        bars=_bars([100.0] * 300),
+    )
+    assert runner.saw_bars_csv
+    bars_csv = runner.workdir_payload["query_input"]["bars_csv"]
+    assert bars_csv["row_count"] == 300
+    assert bars_csv["columns"][0] == "date"
+    assert answered.model == "fake-model"
+    assert len(answered.computations) == 1
+    assert answered.computations[0].stdout == "12\n"
+
+
+def test_service_rejects_v1_envelope(tmp_path: Path) -> None:
+    runner = FakeHermesRunner(schema_version="hermes_query_envelope.v1")
+    service = _service(runner, tmp_path)
+    with pytest.raises(ChartQueryError) as excinfo:
+        _ = service.ask(
+            symbol="214450",
+            timeframe="240",
+            question="질문",
+            bars=_bars([100.0] * 300),
+        )
+    assert excinfo.value.reason == "invalid_response"
+
+
+def test_query_prompt_omits_bars_csv_without_workdir() -> None:
+    context = build_query_context(_bars([100.0] * 260))
+    prompt = build_query_prompt(
+        symbol="214450",
+        timeframe="240",
+        question="질문",
+        context=context,
+    )
+    payload = json.loads(prompt.stdin.decode("utf-8").rsplit("\n", 1)[-1])
+    assert "workdir" not in payload
+    assert "bars_csv" not in payload["query_input"]
+
+
+def test_record_persists_computations_and_reads_legacy_lines(
+    tmp_path: Path,
+) -> None:
+    store = FileChartQueryStore(tmp_path)
+    store.append(
+        new_query_record(
+            symbol="214450",
+            timeframe="240",
+            question="질문",
+            status="answered",
+            answer="답변",
+            computations=(
+                QueryComputation(code="print(1)", stdout="1\n", exit_code=0),
+            ),
+        ),
+    )
+    legacy = new_query_record(
+        symbol="214450",
+        timeframe="240",
+        question="구버전",
+        status="answered",
+        answer="답변",
+    )
+    legacy_line = legacy.model_dump_json(exclude={"computations"})
+    assert "computations" not in legacy_line
+    with (tmp_path / "queries.jsonl").open("a", encoding="utf-8") as handle:
+        _ = handle.write(legacy_line + "\n")
+
+    records = store.list_queries()
+    assert len(records) == 2
+    assert records[0].computations == ()
+    assert records[1].computations[0].code == "print(1)"
+    assert isinstance(records[1], ChartQueryRecord)
 
 
 def test_query_endpoint_persists_failures(tmp_path: Path) -> None:

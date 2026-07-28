@@ -454,6 +454,7 @@ def _register_chart_query_routes(app: FastAPI, services: AppServices) -> None:
             answer=answered.answer,
             model=answered.model,
             bars=bars,
+            computations=answered.computations,
         )
         services.query_store.append(record)
         return ChartQueryResponse(query=record)
