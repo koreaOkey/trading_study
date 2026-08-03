@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test"
 
-import { bindDraftAutosave, guardOverlayKeydown, handleJournalKeydown } from "../src/journalBindings"
+import {
+  bindDraftAutosave,
+  guardOverlayKeydown,
+  handleJournalKeydown,
+  overlayOwnsEvent,
+} from "../src/journalBindings"
 
 class FakeField {
   private inputListener: ((event: Event) => void) | null = null
@@ -149,5 +154,18 @@ describe("journal input bindings", () => {
     // Then
     expect(submissions).toBe(1)
     expect(stopped).toBe(true)
+  })
+
+  test("window capture shield claims only events retargeted to the overlay host", () => {
+    // Given: a closed shadow root retargets overlay events, so from window
+    // the overlay is visible only as its host element in the composed path.
+    const host = { id: "fj-host" } as unknown as HTMLElement
+    const other = { id: "page-node" }
+    const fromOverlay = { composedPath: () => [host, other] }
+    const fromPage = { composedPath: () => [other] }
+
+    // Then
+    expect(overlayOwnsEvent(fromOverlay as unknown as Event, host)).toBe(true)
+    expect(overlayOwnsEvent(fromPage as unknown as Event, host)).toBe(false)
   })
 })

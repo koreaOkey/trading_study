@@ -152,6 +152,13 @@ export const guardOverlayKeydown = (
   event.stopPropagation()
 }
 
+// Outside a closed shadow root the event is retargeted, so the overlay
+// shows up in the composed path only as its bare host element.
+export const overlayOwnsEvent = (
+  event: Pick<Event, "composedPath">,
+  host: HTMLElement,
+): boolean => event.composedPath().includes(host)
+
 export const bindJournalChrome = (
   root: HTMLElement,
   workflow: CaptureWorkflow,
@@ -169,6 +176,30 @@ export const bindJournalChrome = (
   root.addEventListener("keydown", (event) => guardOverlayKeydown(event, root, workflow))
   root.addEventListener("keypress", (event) => event.stopPropagation())
   root.addEventListener("keyup", (event) => event.stopPropagation())
+  // The bubble guards above never see TradingView's capture-phase document
+  // handlers, which preventDefault Ctrl+V (chart symbol/drawing paste) before
+  // the overlay's textarea receives it — and the closed shadow root hides the
+  // textarea, so TradingView's own editable-target exemption cannot apply.
+  // Window capture fires ahead of document capture: shield overlay events
+  // there. stopPropagation keeps the default action (typing, paste) intact.
+  const rootNode = root.getRootNode()
+  const host = rootNode instanceof ShadowRoot ? (rootNode.host as HTMLElement) : root
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (overlayOwnsEvent(event, host)) guardOverlayKeydown(event, root, workflow)
+    },
+    true,
+  )
+  for (const type of ["keypress", "keyup", "paste", "cut", "copy"] as const) {
+    window.addEventListener(
+      type,
+      (event) => {
+        if (overlayOwnsEvent(event, host)) event.stopPropagation()
+      },
+      true,
+    )
+  }
   document.addEventListener("keydown", (event) => handleJournalKeydown(event, root, workflow))
   chrome.runtime.onMessage.addListener((message: unknown) => {
     if (typeof message !== "object" || message === null || !("kind" in message)) return
