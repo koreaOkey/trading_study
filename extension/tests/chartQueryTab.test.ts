@@ -22,6 +22,7 @@ const record = (overrides: Partial<ChartQueryRecord>): ChartQueryRecord => ({
 describe("chart query tab labels", () => {
   test("maps backend error codes to actionable Korean", () => {
     expect(queryErrorLabel("series_unregistered")).toContain("전체 차트를 먼저 추출")
+    expect(queryErrorLabel("daily_history_unavailable")).toContain("KIS에서 일봉 이력")
     expect(queryErrorLabel("replay_active")).toContain("리플레이")
     expect(queryErrorLabel("unknown_code")).toBe("unknown_code")
   })

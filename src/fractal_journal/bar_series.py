@@ -162,8 +162,8 @@ def parse_tradingview_csv(csv_text: str) -> tuple[OhlcvBar, ...]:
 
 
 class FileBarSeriesStore:
-    def __init__(self, data_dir: Path) -> None:
-        self._series_dir: Path = data_dir / SERIES_DIRNAME
+    def __init__(self, data_dir: Path, dirname: str = SERIES_DIRNAME) -> None:
+        self._series_dir: Path = data_dir / dirname
 
     def series_path(self, symbol: str, timeframe: str) -> Path:
         symbol = _validate_key(symbol, "symbol")

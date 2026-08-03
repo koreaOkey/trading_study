@@ -12,6 +12,8 @@ export const queryErrorLabel = (code: string): string => {
   switch (code) {
     case "series_unregistered":
       return "등록된 봉이 없습니다 — 판단 기록 탭에서 전체 차트를 먼저 추출하세요"
+    case "daily_history_unavailable":
+      return "KIS에서 일봉 이력을 가져오지 못했습니다 — 잠시 후 다시 시도하세요"
     case "replay_active":
       return "리플레이 중에는 질의할 수 없습니다"
     case "hermes_timeout":

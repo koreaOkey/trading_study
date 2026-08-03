@@ -23,12 +23,18 @@ from fractal_journal.chart_query import (
     new_query_record,
 )
 from fractal_journal.config import Settings
+from fractal_journal.daily_query_series import (
+    DAILY_CACHE_DIRNAME,
+    KisDailyQuerySource,
+    deep_history_throttle,
+)
 from fractal_journal.hermes_query import (
     HermesChartQueryService,
     create_chart_query_service,
 )
 from fractal_journal.hermes_review import DecisionReviewer, create_hermes_reviewer
 from fractal_journal.kis_auth import load_credentials
+from fractal_journal.kis_daily_history import DAILY_TIMEFRAME
 from fractal_journal.kis_provider import KisOhlcvProvider
 from fractal_journal.provider import FixtureOhlcvProvider, OhlcvProvider
 from fractal_journal.review_service import DecisionReviewService
@@ -60,6 +66,7 @@ class AppServices:
     review_service: DecisionReviewService
     query_store: FileChartQueryStore
     query_service: HermesChartQueryService
+    daily_query_source: KisDailyQuerySource
 
 
 def create_app(
@@ -95,6 +102,23 @@ def create_app(
         review_service=DecisionReviewService(evidence_provider, resolved_reviewer),
         query_store=FileChartQueryStore(resolved_settings.data_dir),
         query_service=query_service or create_chart_query_service(resolved_settings),
+        daily_query_source=KisDailyQuerySource(
+            # A dedicated provider with a gentler page throttle: deep daily
+            # paging at the shared 0.05s cadence trips KIS's rate limit.
+            provider=(
+                KisOhlcvProvider(
+                    credentials,
+                    resolved_settings.kis_token_cache_path,
+                    history_throttle=deep_history_throttle,
+                )
+                if provider is None and credentials is not None
+                else resolved_provider
+            ),
+            cache_store=FileBarSeriesStore(
+                resolved_settings.data_dir,
+                dirname=DAILY_CACHE_DIRNAME,
+            ),
+        ),
     )
 
     @asynccontextmanager
@@ -422,6 +446,15 @@ def _register_chart_query_routes(app: FastAPI, services: AppServices) -> None:
                 detail="replay_active",
             )
         bars = services.series_store.load(payload.symbol, payload.timeframe)
+        if not bars and payload.timeframe == DAILY_TIMEFRAME:
+            # Daily charts are never registrable from the extension (KIS-direct
+            # by design), so serve them from the KIS-backed query cache.
+            bars = services.daily_query_source.load(payload.symbol)
+            if not bars:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="daily_history_unavailable",
+                )
         if not bars:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
