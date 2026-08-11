@@ -71,9 +71,26 @@ export type AskChartQueryMessage = {
 export type ListChartQueriesMessage = {
   readonly kind: "list-chart-queries"
   readonly settings: ExtensionSettings
-  readonly symbol: string
-  readonly timeframe: string
+  readonly symbol?: string | undefined
+  readonly timeframe?: string | undefined
   readonly limit: number
+}
+
+export type ListUniverseQueriesMessage = {
+  readonly kind: "list-universe-queries"
+  readonly settings: ExtensionSettings
+  readonly limit: number
+}
+
+export const universeScopeValues = ["kr", "us", "crypto", "all"] as const
+
+export type UniverseScope = (typeof universeScopeValues)[number]
+
+export type AskUniverseQueryMessage = {
+  readonly kind: "ask-universe-query"
+  readonly settings: ExtensionSettings
+  readonly scope: UniverseScope
+  readonly question: string
 }
 
 export type CaptureMessage =
@@ -86,6 +103,8 @@ export type CaptureMessage =
   | RecentReviewsMessage
   | AskChartQueryMessage
   | ListChartQueriesMessage
+  | AskUniverseQueryMessage
+  | ListUniverseQueriesMessage
 
 export type HealthMessageResponse =
   | { readonly ok: true; readonly status: number }
@@ -169,6 +188,13 @@ export const recentReviewsMessageResponseSchema = z.discriminatedUnion("ok", [
 
 export type RecentReviewsMessageResponse = z.infer<typeof recentReviewsMessageResponseSchema>
 
+export const queryComputationSchema = z.object({
+  code: z.string(),
+  stdout: z.string().optional().default(""),
+})
+
+export type QueryComputation = z.infer<typeof queryComputationSchema>
+
 export const chartQueryRecordSchema = z.object({
   query_id: z.string(),
   created_at_utc: z.string(),
@@ -182,6 +208,7 @@ export const chartQueryRecordSchema = z.object({
   bar_count: z.number().int().nonnegative().optional().default(0),
   first_bar_exchange: z.string().optional().default(""),
   last_bar_exchange: z.string().optional().default(""),
+  computations: z.array(queryComputationSchema).optional().default([]),
 })
 
 export type ChartQueryRecord = z.infer<typeof chartQueryRecordSchema>
@@ -200,6 +227,39 @@ export const listChartQueriesMessageResponseSchema = z.discriminatedUnion("ok", 
 
 export type ListChartQueriesMessageResponse = z.infer<
   typeof listChartQueriesMessageResponseSchema
+>
+
+export const universeQueryRecordSchema = z.object({
+  query_id: z.string(),
+  created_at_utc: z.string(),
+  scope: z.enum(universeScopeValues),
+  question: z.string(),
+  status: z.enum(["answered", "failed"]),
+  answer: z.string().optional().default(""),
+  error_code: z.string().optional().default(""),
+  model: z.string().optional().default(""),
+  data_files: z.array(z.string()).optional().default([]),
+  computations: z.array(queryComputationSchema).optional().default([]),
+})
+
+export type UniverseQueryRecord = z.infer<typeof universeQueryRecordSchema>
+
+export const askUniverseQueryMessageResponseSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true), query: universeQueryRecordSchema }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+])
+
+export type AskUniverseQueryMessageResponse = z.infer<
+  typeof askUniverseQueryMessageResponseSchema
+>
+
+export const listUniverseQueriesMessageResponseSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true), items: z.array(universeQueryRecordSchema) }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+])
+
+export type ListUniverseQueriesMessageResponse = z.infer<
+  typeof listUniverseQueriesMessageResponseSchema
 >
 
 const settingsSchema = z.object({ apiBaseUrl: z.string(), apiToken: z.string() })
@@ -251,8 +311,20 @@ export const extensionMessageSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("list-chart-queries"),
     settings: settingsSchema,
-    symbol: z.string().min(1).max(32),
-    timeframe: z.string().min(1).max(16),
-    limit: z.number().int().min(1).max(50),
+    // 생략하면 전 종목 이력 — 대시보드 공부방 아카이브와 같은 전체 보기.
+    symbol: z.string().min(1).max(32).optional(),
+    timeframe: z.string().min(1).max(16).optional(),
+    limit: z.number().int().min(1).max(200),
+  }),
+  z.object({
+    kind: z.literal("ask-universe-query"),
+    settings: settingsSchema,
+    scope: z.enum(universeScopeValues),
+    question: z.string().min(1).max(2_000),
+  }),
+  z.object({
+    kind: z.literal("list-universe-queries"),
+    settings: settingsSchema,
+    limit: z.number().int().min(1).max(200),
   }),
 ])

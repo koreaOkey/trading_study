@@ -12,6 +12,7 @@ import {
 } from "./journalBindings"
 import { fallbackCandidateMetadata } from "./metadata"
 import type { CandidateMetadata } from "./metadata"
+import { isOverlayMinimized, restoreMinimizedPreference } from "./minimize"
 import { applyCandidate, openSheet, renderOverlay, ROOT_ID } from "./overlayView"
 import { bindReviewHistory } from "./reviewHistory"
 import { restoreDraft } from "./storage"
@@ -62,7 +63,8 @@ const mount = async (): Promise<void> => {
     void csvRegistration?.refresh()
   })
   await bindDraggableOverlay(root)
-  if (getInputValue(root, "symbol").length === 0) openSheet(root)
+  await restoreMinimizedPreference(root)
+  if (!isOverlayMinimized(root) && getInputValue(root, "symbol").length === 0) openSheet(root)
   await workflow.checkBackend()
 }
 

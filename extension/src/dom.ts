@@ -31,6 +31,7 @@ export const autoFieldDatasetKey = (name: string): string =>
   `auto${name[0]?.toUpperCase() ?? ""}${name.slice(1)}`
 
 export const setState = (root: HTMLElement, state: OverlayState): void => {
+  root.dataset["overlayStatus"] = state.status
   const status = root.querySelector<HTMLElement>("[data-status]")
   if (status !== null) {
     status.dataset["status"] = state.status

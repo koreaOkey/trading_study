@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { bindOverlayResizeReclamp, clampOverlayPosition } from "../src/drag"
+import { bindOverlayResizeReclamp, clampOverlayPosition, consumeDragClick } from "../src/drag"
 
 describe("draggable overlay bounds", () => {
   test("keeps the entire overlay inside the viewport", () => {
@@ -44,5 +44,19 @@ describe("draggable overlay bounds", () => {
 
     // Then
     expect(root.style.top).toBe("292px")
+  })
+
+  test("consumes the trailing click of a real drag exactly once", () => {
+    // Given
+    const root = { dataset: { dragMoved: "true" } as Record<string, string> }
+
+    // When
+    const suppressed = consumeDragClick(root as unknown as HTMLElement)
+    const followUp = consumeDragClick(root as unknown as HTMLElement)
+
+    // Then
+    expect(suppressed).toBe(true)
+    expect(followUp).toBe(false)
+    expect(root.dataset["dragMoved"]).toBeUndefined()
   })
 })

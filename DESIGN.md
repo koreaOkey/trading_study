@@ -114,6 +114,7 @@ No nested card elevation, blur filter, glow, inset shadow, or additional elevati
 
 ## 4. Responsive geometry
 
+- **Minimized icon:** a `46px` circular bubble (`radius.pill`) replacing dock and sheet entirely, for unobstructed chart viewing. Its border color mirrors the backend status (accent/ready/warning/danger). Click restores whatever was minimized — dock or open sheet; drag moves it; the preference (including the restore target) persists across page loads.
 - **Closed dock, desktop:** fixed `right: 16px; bottom: 16px`; width `min(380px, calc(100vw - 32px))`. Its two-column grid is `minmax(0, 1fr) auto`, with the primary entry action and hotkey spanning both columns.
 - **Open sheet, desktop:** fixed `top: 70px; right: 16px; bottom: auto`; width `min(448px, calc(100vw - 32px))`; maximum height `80vh`. The dock is hidden. Header and bottom Submit remain outside the internally scrolling `.fj-sheet-scroll` region.
 - **Content grid:** two equal `minmax(0, 1fr)` tracks; wide fields span both. Main content uses a `14px` horizontal gutter and an `8px` grid gap.
@@ -126,7 +127,11 @@ No nested card elevation, blur filter, glow, inset shadow, or additional elevati
 
 ### Dock
 
-The dock contains the product kicker, compact title, backend/review status, one violet entry button, and the keyboard hint. It has default, backend-checking, ready, warning, and error states. Dragging changes the cursor only. The entry button hover/focus/disabled states must use the shared accent/focus tokens and retain its `38px` minimum height.
+The dock contains the product kicker, compact title, backend/review status, a minimize-to-icon control, one violet entry button, and the keyboard hint. It has default, backend-checking, ready, warning, and error states. Dragging changes the cursor only. The entry button hover/focus/disabled states must use the shared accent/focus tokens and retain its `38px` minimum height.
+
+### Minimized icon
+
+The bubble is the maximum-retreat state: journal presence and backend status in a single `46px` circle, nothing else. Minimizing flushes the draft first; the sheet hotkey (`Ctrl/Cmd + Shift + J`) and the toolbar action both restore and open the sheet directly. The bubble is simultaneously a button and a drag handle — a drag's trailing click must not trigger restore.
 
 ### Sheet
 

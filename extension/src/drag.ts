@@ -10,6 +10,9 @@ export type Size = {
 
 const POSITION_KEY = "fractalReplayOverlayPosition"
 const VIEWPORT_MARGIN = 8
+// Generous dead zone: a physical trackpad press wobbles the pointer a few
+// pixels, and that wobble must still count as a click on the bubble.
+const DRAG_CLICK_SLOP_PX = 8
 
 export const clampOverlayPosition = (
   position: Point,
@@ -95,12 +98,26 @@ const restorePosition = async (root: HTMLElement): Promise<void> => {
   )
 }
 
-const isInteractiveTarget = (target: EventTarget | null): boolean =>
-  target instanceof Element && target.closest("button, input, textarea, select, a") !== null
+const isInteractiveTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof Element)) {
+    return false
+  }
+  const interactive = target.closest("button, input, textarea, select, a")
+  return interactive !== null && !interactive.hasAttribute("data-drag-handle")
+}
+
+// A handle that is itself a button (the minimized bubble) fires a click when a
+// drag ends; callers consume this flag to tell that click from a deliberate press.
+export const consumeDragClick = (root: HTMLElement): boolean => {
+  const moved = root.dataset["dragMoved"] === "true"
+  delete root.dataset["dragMoved"]
+  return moved
+}
 
 export const bindDraggableOverlay = async (root: HTMLElement): Promise<void> => {
   let pointerId: number | null = null
   let pointerOffset: Point = { x: 0, y: 0 }
+  let dragOrigin: Point = { x: 0, y: 0 }
 
   root.querySelectorAll<HTMLElement>("[data-drag-handle]").forEach((handle) => {
     handle.addEventListener("pointerdown", (event) => {
@@ -110,6 +127,8 @@ export const bindDraggableOverlay = async (root: HTMLElement): Promise<void> => 
       const rect = root.getBoundingClientRect()
       pointerId = event.pointerId
       pointerOffset = { x: event.clientX - rect.left, y: event.clientY - rect.top }
+      dragOrigin = { x: event.clientX, y: event.clientY }
+      delete root.dataset["dragMoved"]
       handle.setPointerCapture(event.pointerId)
       root.classList.add("fj-dragging")
       event.preventDefault()
@@ -117,6 +136,14 @@ export const bindDraggableOverlay = async (root: HTMLElement): Promise<void> => 
     handle.addEventListener("pointermove", (event) => {
       if (pointerId !== event.pointerId) {
         return
+      }
+      if (root.dataset["dragMoved"] !== "true") {
+        const slop =
+          Math.abs(event.clientX - dragOrigin.x) + Math.abs(event.clientY - dragOrigin.y)
+        if (slop <= DRAG_CLICK_SLOP_PX) {
+          return
+        }
+        root.dataset["dragMoved"] = "true"
       }
       applyPosition(
         root,

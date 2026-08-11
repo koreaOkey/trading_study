@@ -63,6 +63,31 @@ CHART_QUERY_SYSTEM_PROMPT: Final = (
     "with optional minimal markdown lists."
 )
 
+UNIVERSE_QUERY_SYSTEM_PROMPT: Final = (
+    "You are a technical-analysis study assistant for a private trading "
+    "journal. Answer the trader's cross-sectional question about the scanned "
+    "universe in Korean. The context JSON supplies a small summary; for "
+    "anything beyond it you MUST compute the numbers yourself by replying "
+    "with exactly one fenced ```python code block (and nothing else in that "
+    "reply). The block runs in a sandbox whose working directory contains "
+    "the UTF-8 JSON files listed in data_files (open with json.load; each "
+    "latest_<class>.json holds scanner rows, cross_base_rate.json holds "
+    "historical golden-cross base rates). Standard library only; no network, "
+    "no subprocess, no file writes outside the working directory; 20-second "
+    "limit; print() every result you need. After each execution you receive "
+    "the stdout/stderr and then either run one more block or give the final "
+    "Korean answer with no code fence. Every number in the final answer "
+    "must come from executed output or the context JSON — never estimate or "
+    "compute in your head. The data covers only the scanned universe, not "
+    "every listed symbol — say so when the question implies a wider scope. "
+    "If a computation keeps failing, say so instead of guessing. Never "
+    "issue a buy, sell, entry, exit, position-size, stop-loss, or other "
+    "personalized trading instruction; describe structure and statistics "
+    "only and remind that the final judgment belongs to the trader when "
+    "relevant. Keep the final answer under 450 Korean words. Plain text "
+    "with optional minimal markdown lists."
+)
+
 MAX_WORKER_COMPUTATIONS: Final = 4
 
 
@@ -89,17 +114,31 @@ def wrap_query_response(
     return json.dumps(envelope, ensure_ascii=False, separators=(",", ":"))
 
 
-def extract_workdir(prompt: str) -> Path | None:
+def _payload(prompt: str) -> dict[str, object] | None:
     payload_line = prompt.rsplit("\n", 1)[-1]
     try:
         payload = json.loads(payload_line)
     except ValueError:
         return None
-    workdir = payload.get("workdir") if isinstance(payload, dict) else None
+    return payload if isinstance(payload, dict) else None
+
+
+def extract_workdir(prompt: str) -> Path | None:
+    payload = _payload(prompt)
+    workdir = payload.get("workdir") if payload is not None else None
     if not isinstance(workdir, str):
         return None
     path = Path(workdir)
     return path if path.is_dir() else None
+
+
+def select_system_prompt(prompt: str) -> str:
+    """Universe payloads carry a data_files manifest instead of bars_csv."""
+    payload = _payload(prompt)
+    query_input = payload.get("query_input") if payload is not None else None
+    if isinstance(query_input, dict) and "data_files" in query_input:
+        return UNIVERSE_QUERY_SYSTEM_PROMPT
+    return CHART_QUERY_SYSTEM_PROMPT
 
 
 def main() -> int:
@@ -121,7 +160,7 @@ def main() -> int:
     return 0
 
 
-def _build_agent() -> HermesAgent:
+def _build_agent(system_prompt: str) -> HermesAgent:
     sys.path.insert(0, str(HERMES_REPOSITORY))
 
     config_module = importlib.import_module("hermes_cli.config")
@@ -162,7 +201,7 @@ def _build_agent() -> HermesAgent:
         quiet_mode=True,
         max_iterations=1,
         save_trajectories=False,
-        ephemeral_system_prompt=CHART_QUERY_SYSTEM_PROMPT,
+        ephemeral_system_prompt=system_prompt,
         platform="journal-query",
     )
     agent.suppress_status_output = True
@@ -173,7 +212,7 @@ def _build_agent() -> HermesAgent:
 
 def _run_query(prompt: str) -> str:
     logging.disable(logging.CRITICAL)
-    agent = _build_agent()
+    agent = _build_agent(select_system_prompt(prompt))
 
     def chat(message: str) -> str:
         return agent.chat(message) or ""

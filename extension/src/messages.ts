@@ -1,8 +1,10 @@
 import {
   askChartQueryMessageResponseSchema,
+  askUniverseQueryMessageResponseSchema,
   barCoverageMessageResponseSchema,
   healthMessageResponseSchema,
   listChartQueriesMessageResponseSchema,
+  listUniverseQueriesMessageResponseSchema,
   recentReviewsMessageResponseSchema,
   registerBarSeriesMessageResponseSchema,
   reviewCaptureMessageResponseSchema,
@@ -10,13 +12,16 @@ import {
 } from "./messageProtocol"
 import type {
   AskChartQueryMessageResponse,
+  AskUniverseQueryMessageResponse,
   BarCoverageMessageResponse,
   HealthMessageResponse,
   ListChartQueriesMessageResponse,
+  ListUniverseQueriesMessageResponse,
   RecentReviewsMessageResponse,
   RegisterBarSeriesMessageResponse,
   ReviewCaptureMessageResponse,
   SaveCaptureMessageResponse,
+  UniverseScope,
 } from "./messageProtocol"
 import type {
   CaptureDraftPayload,
@@ -136,6 +141,47 @@ export const listChartQueries = async (
       settings,
       symbol,
       timeframe,
+      limit,
+    }),
+  )
+}
+
+export const askUniverseQuery = async (
+  settings: ExtensionSettings,
+  scope: UniverseScope,
+  question: string,
+): Promise<AskUniverseQueryMessageResponse> => {
+  return askUniverseQueryMessageResponseSchema.parse(
+    await chrome.runtime.sendMessage({
+      kind: "ask-universe-query",
+      settings,
+      scope,
+      question,
+    }),
+  )
+}
+
+export const listAllChartQueries = async (
+  settings: ExtensionSettings,
+  limit = 200,
+): Promise<ListChartQueriesMessageResponse> => {
+  return listChartQueriesMessageResponseSchema.parse(
+    await chrome.runtime.sendMessage({
+      kind: "list-chart-queries",
+      settings,
+      limit,
+    }),
+  )
+}
+
+export const listUniverseQueries = async (
+  settings: ExtensionSettings,
+  limit = 200,
+): Promise<ListUniverseQueriesMessageResponse> => {
+  return listUniverseQueriesMessageResponseSchema.parse(
+    await chrome.runtime.sendMessage({
+      kind: "list-universe-queries",
+      settings,
       limit,
     }),
   )

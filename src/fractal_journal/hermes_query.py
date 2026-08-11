@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,10 +25,17 @@ from fractal_journal.hermes_review import (
     SubprocessHermesRunner,
     build_hermes_subprocess_env,
 )
+from fractal_journal.universe_query import (
+    UniverseDataFile,
+    build_universe_context,
+    build_universe_query_prompt,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from fractal_journal.chart_query import ChartQueryPrompt
+    from fractal_journal.hermes_review import HermesProcessResult
     from fractal_journal.config import Settings
     from fractal_journal.provider import OhlcvBar
 
@@ -99,40 +107,92 @@ class HermesChartQueryService:
                 workdir=workdir,
                 bar_count=len(bars),
             )
-            process = self.runner.run(
-                HermesProcessRequest(
-                    argv=(
-                        str(self.settings.hermes_python_path),
-                        str(self.settings.hermes_query_worker_path),
-                    ),
-                    stdin=prompt.stdin,
-                    env=build_hermes_subprocess_env(self.settings.hermes_home),
-                    timeout_seconds=self.settings.hermes_query_timeout_seconds,
-                    output_max_bytes=self.settings.hermes_output_max_bytes,
-                ),
+            process = _run_query_worker(self.settings, self.runner, prompt)
+        return _validated_answer(process, prompt)
+
+
+def _run_query_worker(
+    settings: Settings,
+    runner: HermesProcessRunner,
+    prompt: ChartQueryPrompt,
+) -> HermesProcessResult:
+    return runner.run(
+        HermesProcessRequest(
+            argv=(
+                str(settings.hermes_python_path),
+                str(settings.hermes_query_worker_path),
+            ),
+            stdin=prompt.stdin,
+            env=build_hermes_subprocess_env(settings.hermes_home),
+            timeout_seconds=settings.hermes_query_timeout_seconds,
+            output_max_bytes=settings.hermes_output_max_bytes,
+        ),
+    )
+
+
+def _validated_answer(
+    process: HermesProcessResult,
+    prompt: ChartQueryPrompt,
+) -> ChartQueryAnswer:
+    if process.timed_out:
+        raise ChartQueryError(_TIMEOUT)
+    if process.oversized or process.exit_code != 0:
+        raise ChartQueryError(_UNAVAILABLE)
+    try:
+        envelope = QueryEnvelope.model_validate(json.loads(process.stdout))
+    except (ValidationError, ValueError) as exc:
+        raise ChartQueryError(_INVALID) from exc
+    if envelope.schema_version != QUERY_ENVELOPE_SCHEMA:
+        raise ChartQueryError(_INVALID)
+    if envelope.input_sha256 != prompt.input_sha256:
+        raise ChartQueryError(_INVALID)
+    if not envelope.answer.strip():
+        raise ChartQueryError(_EMPTY)
+    if answer_contains_blocked_action(envelope.answer):
+        raise ChartQueryError(_BLOCKED)
+    return ChartQueryAnswer(
+        answer=envelope.answer,
+        model=envelope.model,
+        computations=envelope.computations,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class HermesUniverseQueryService:
+    """Universe variant of the chart query service — same worker, same
+    envelope contract; the sandbox holds scanner JSONs instead of bars.csv."""
+
+    settings: Settings
+    runner: HermesProcessRunner
+
+    def ask(
+        self,
+        *,
+        scope: str,
+        question: str,
+        files: tuple[UniverseDataFile, ...],
+    ) -> ChartQueryAnswer:
+        context = build_universe_context(files)
+        with tempfile.TemporaryDirectory(prefix="fjuq-workdir-") as workdir:
+            for file in files:
+                _ = shutil.copyfile(file.source, Path(workdir) / file.filename)
+            prompt = build_universe_query_prompt(
+                scope=scope,
+                question=question,
+                context=context,
+                files=files,
+                workdir=workdir,
             )
-        if process.timed_out:
-            raise ChartQueryError(_TIMEOUT)
-        if process.oversized or process.exit_code != 0:
-            raise ChartQueryError(_UNAVAILABLE)
-        try:
-            envelope = QueryEnvelope.model_validate(json.loads(process.stdout))
-        except (ValidationError, ValueError) as exc:
-            raise ChartQueryError(_INVALID) from exc
-        if envelope.schema_version != QUERY_ENVELOPE_SCHEMA:
-            raise ChartQueryError(_INVALID)
-        if envelope.input_sha256 != prompt.input_sha256:
-            raise ChartQueryError(_INVALID)
-        if not envelope.answer.strip():
-            raise ChartQueryError(_EMPTY)
-        if answer_contains_blocked_action(envelope.answer):
-            raise ChartQueryError(_BLOCKED)
-        return ChartQueryAnswer(
-            answer=envelope.answer,
-            model=envelope.model,
-            computations=envelope.computations,
-        )
+            process = _run_query_worker(self.settings, self.runner, prompt)
+        return _validated_answer(process, prompt)
 
 
 def create_chart_query_service(settings: Settings) -> HermesChartQueryService:
     return HermesChartQueryService(settings=settings, runner=SubprocessHermesRunner())
+
+
+def create_universe_query_service(settings: Settings) -> HermesUniverseQueryService:
+    return HermesUniverseQueryService(
+        settings=settings,
+        runner=SubprocessHermesRunner(),
+    )

@@ -1,4 +1,6 @@
 import type { CaptureWorkflow } from "./captureWorkflow"
+import { consumeDragClick } from "./drag"
+import { minimizeOverlay, restoreOverlay } from "./minimize"
 import { closeSheet, openSheet } from "./overlayView"
 import { saveDraft } from "./storage"
 import type { Hypothesis } from "./types"
@@ -169,6 +171,15 @@ export const bindJournalChrome = (
   })
   root.querySelector<HTMLButtonElement>("[data-close-sheet]")?.addEventListener("click", (event) => {
     if (event.isTrusted) void draft.flush().then(() => closeSheet(root))
+  })
+  root.querySelectorAll<HTMLButtonElement>("[data-minimize]").forEach((button) =>
+    button.addEventListener("click", (event) => {
+      if (event.isTrusted) void draft.flush().then(() => minimizeOverlay(root))
+    }),
+  )
+  root.querySelector<HTMLButtonElement>("[data-restore]")?.addEventListener("click", (event) => {
+    if (!event.isTrusted || consumeDragClick(root)) return
+    if (restoreOverlay(root) === "sheet") openSheet(root)
   })
   bindUtilityActionButtons(root, workflow)
   // TradingView's document-level hotkeys steal digits (interval dialog) and

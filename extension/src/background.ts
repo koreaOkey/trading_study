@@ -11,16 +11,20 @@ import {
   chartQueryRecordSchema,
   extensionMessageSchema,
   reviewHistoryItemSchema,
+  universeQueryRecordSchema,
 } from "./messageProtocol"
 import type {
   AskChartQueryMessageResponse,
+  AskUniverseQueryMessageResponse,
   BarCoverageMessageResponse,
   HealthMessageResponse,
   ListChartQueriesMessageResponse,
+  ListUniverseQueriesMessageResponse,
   RecentReviewsMessageResponse,
   RegisterBarSeriesMessageResponse,
   ReviewCaptureMessageResponse,
   SaveCaptureMessageResponse,
+  UniverseScope,
 } from "./messageProtocol"
 import { captureResponseSchema, decisionReviewResultSchema } from "./types"
 import type { CapturePayload, DistributiveOmit } from "./types"
@@ -288,13 +292,48 @@ const askChartQuery = async (
   }
 }
 
+const askUniverseQueryResponseSchema = z.object({ query: universeQueryRecordSchema })
+
+const askUniverseQuery = async (
+  scope: UniverseScope,
+  question: string,
+  apiBaseUrl: string,
+  apiToken: string,
+): Promise<AskUniverseQueryMessageResponse> => {
+  requireLoopback(apiBaseUrl)
+  try {
+    const rawResponse = await ky
+      .post(`${apiBaseUrl}/api/universe-queries`, {
+        headers: headersFor(apiToken),
+        json: { scope, question },
+        retry: { limit: 0 },
+        // Same multi-round computation loop as chart queries — review budget.
+        timeout: REVIEW_HTTP_TIMEOUT,
+      })
+      .json<unknown>()
+    return { ok: true, query: askUniverseQueryResponseSchema.parse(rawResponse).query }
+  } catch (error) {
+    if (error instanceof HTTPError) {
+      const body: unknown = await error.response.json().catch(() => null)
+      const detail =
+        typeof body === "object" && body !== null && "detail" in body
+          ? (body as { detail: unknown }).detail
+          : null
+      if (typeof detail === "string" && detail.length > 0) {
+        return { ok: false, error: detail }
+      }
+    }
+    throw error
+  }
+}
+
 const listChartQueriesResponseSchema = z.object({
   items: z.array(chartQueryRecordSchema),
 })
 
 const listChartQueries = async (
-  symbol: string,
-  timeframe: string,
+  symbol: string | undefined,
+  timeframe: string | undefined,
   limit: number,
   apiBaseUrl: string,
   apiToken: string,
@@ -303,12 +342,37 @@ const listChartQueries = async (
   const rawResponse = await ky
     .get(`${apiBaseUrl}/api/queries`, {
       headers: headersFor(apiToken),
-      searchParams: { symbol, timeframe, limit },
+      searchParams: {
+        limit,
+        ...(symbol === undefined ? {} : { symbol }),
+        ...(timeframe === undefined ? {} : { timeframe }),
+      },
       retry: { limit: 1 },
       timeout: 10_000,
     })
     .json<unknown>()
   return { ok: true, items: listChartQueriesResponseSchema.parse(rawResponse).items }
+}
+
+const listUniverseQueriesResponseSchema = z.object({
+  items: z.array(universeQueryRecordSchema),
+})
+
+const listUniverseQueries = async (
+  limit: number,
+  apiBaseUrl: string,
+  apiToken: string,
+): Promise<ListUniverseQueriesMessageResponse> => {
+  requireLoopback(apiBaseUrl)
+  const rawResponse = await ky
+    .get(`${apiBaseUrl}/api/universe-queries`, {
+      headers: headersFor(apiToken),
+      searchParams: { limit },
+      retry: { limit: 1 },
+      timeout: 10_000,
+    })
+    .json<unknown>()
+  return { ok: true, items: listUniverseQueriesResponseSchema.parse(rawResponse).items }
 }
 
 const reviewCapture = async (
@@ -413,6 +477,25 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
             await listChartQueries(
               parsed.data.symbol,
               parsed.data.timeframe,
+              parsed.data.limit,
+              settings.apiBaseUrl,
+              settings.apiToken,
+            ),
+          )
+          return
+        case "ask-universe-query":
+          sendResponse(
+            await askUniverseQuery(
+              parsed.data.scope,
+              parsed.data.question,
+              settings.apiBaseUrl,
+              settings.apiToken,
+            ),
+          )
+          return
+        case "list-universe-queries":
+          sendResponse(
+            await listUniverseQueries(
               parsed.data.limit,
               settings.apiBaseUrl,
               settings.apiToken,

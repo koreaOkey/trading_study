@@ -56,21 +56,29 @@
   <body>
     <div class="preview-chart-line" aria-hidden="true"></div>
     <nav class="preview-states" aria-label="Preview state">
+      <button type="button" data-preview-state="icon">Icon</button>
       <button type="button" data-preview-state="dock">Dock</button>
       <button type="button" data-preview-state="open">Open</button>
       <button type="button" data-preview-state="review">Review</button>
     </nav>
-    <section class="fj-root" aria-label="Fractal replay decision journal">
+    <section class="fj-root" data-overlay-status="ready" aria-label="Fractal replay decision journal">
+      <button class="fj-bubble" type="button" aria-label="Expand journal">📓</button>
       <div class="fj-dock" data-drag-handle>
         <div><div class="fj-kicker">Fractal Replay</div><strong>Decision journal</strong></div>
-        <span class="fj-status" data-status="ready">Backend ready</span>
+        <div class="fj-dock-side">
+          <span class="fj-status" data-status="ready">Backend ready</span>
+          <button class="fj-icon" type="button" aria-label="Minimize to icon">−</button>
+        </div>
         <button class="fj-primary" type="button">Open journal</button>
         <span class="fj-hotkey">Ctrl/Cmd + Shift + J</span>
       </div>
       <div class="fj-sheet">
         <header class="fj-header">
           <div><div class="fj-kicker">Fractal Replay</div><strong>Decision review</strong></div>
-          <button class="fj-icon" type="button" aria-label="Close">×</button>
+          <div class="fj-header-actions">
+            <button class="fj-icon" type="button" aria-label="Minimize to icon">−</button>
+            <button class="fj-icon" type="button" aria-label="Close">×</button>
+          </div>
         </header>
         <div class="fj-sheet-scroll">
           <section class="fj-section">
@@ -166,7 +174,8 @@
       const review = document.querySelector("[data-preview-review]")
       const stateButtons = document.querySelectorAll("[data-preview-state]")
       const setPreviewState = (state) => {
-        const open = state !== "dock"
+        overlay?.classList.toggle("fj-minimized", state === "icon")
+        const open = state !== "dock" && state !== "icon"
         overlay?.classList.toggle("fj-sheet-open", open)
         if (review instanceof HTMLElement) review.hidden = state !== "review"
         stateButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.getAttribute("data-preview-state") === state)))
@@ -174,7 +183,7 @@
       }
       stateButtons.forEach((button) => button.addEventListener("click", () => setPreviewState(button.getAttribute("data-preview-state") ?? "open")))
       const requestedState = new URLSearchParams(location.search).get("state")
-      setPreviewState(requestedState === "dock" || requestedState === "review" ? requestedState : "open")
+      setPreviewState(["dock", "review", "icon"].includes(requestedState) ? requestedState : "open")
     </script>
   </body>
 </html>

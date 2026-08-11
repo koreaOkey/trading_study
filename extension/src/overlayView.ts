@@ -1,5 +1,6 @@
 import { autoFieldDatasetKey, createElement, getInputValue } from "./dom"
 import { reclampOverlay } from "./drag"
+import { isOverlayMinimized, restoreOverlay } from "./minimize"
 import { currentExchangeIso } from "./metadata"
 import type { CandidateMetadata } from "./metadata"
 import { requestPageMetadata } from "./tradingViewBridge"
@@ -9,6 +10,7 @@ import overlayCss from "./styles.css"
 export const ROOT_ID = "fractal-replay-journal-root"
 
 export const openSheet = (root: HTMLElement): void => {
+  if (isOverlayMinimized(root)) restoreOverlay(root)
   root.classList.add("fj-sheet-open")
   requestPageMetadata()
   window.requestAnimationFrame(() => reclampOverlay(root))
@@ -20,16 +22,24 @@ export const closeSheet = (root: HTMLElement): void => {
 }
 
 const overlayMarkup = (): string => `
+  <button class="fj-bubble" type="button" data-restore data-drag-handle
+    aria-label="판단 저널 펼치기" title="판단 저널 — 클릭하여 펼치기, 드래그로 이동">📓</button>
   <div class="fj-dock" data-drag-handle>
     <div><div class="fj-kicker">Fractal Replay</div><strong>판단 저널</strong></div>
-    <span class="fj-status" data-status="checking" role="status" aria-live="polite">백엔드 확인 중</span>
+    <div class="fj-dock-side">
+      <span class="fj-status" data-status="checking" role="status" aria-live="polite">백엔드 확인 중</span>
+      <button class="fj-icon" type="button" data-minimize aria-label="아이콘으로 축소" title="아이콘으로 축소 — 차트 시야 확보">−</button>
+    </div>
     <button class="fj-primary" type="button" data-open-sheet>저널 열기</button>
     <span class="fj-hotkey">Ctrl/Cmd + Shift + J</span>
   </div>
   <div class="fj-sheet">
     <header class="fj-header" data-drag-handle>
       <div><div class="fj-kicker">Fractal Replay</div><strong>판단 기록</strong></div>
-      <button class="fj-icon" type="button" data-close-sheet aria-label="Close">×</button>
+      <div class="fj-header-actions">
+        <button class="fj-icon" type="button" data-minimize aria-label="아이콘으로 축소" title="아이콘으로 축소 — 차트 시야 확보">−</button>
+        <button class="fj-icon" type="button" data-close-sheet aria-label="Close">×</button>
+      </div>
     </header>
     <div class="fj-tabs" role="tablist">
       <button type="button" role="tab" data-tab="journal" aria-selected="true">판단 기록</button>
@@ -97,6 +107,15 @@ const overlayMarkup = (): string => `
         <section class="fj-section">
           <div class="fj-section-title">자유 질의 · 등록된 전체 봉 기준</div>
           <div class="fj-query-guard" data-query-guard hidden>리플레이 중에는 질의할 수 없습니다 — 커서 이후(미래) 정보가 답변에 섞이는 것을 막기 위해서입니다.</div>
+          <label class="fj-note-label">대상
+            <select data-query-scope>
+              <option value="chart" selected>이 차트 (등록된 전체 봉)</option>
+              <option value="kr">국장 전체 (스캔 유니버스)</option>
+              <option value="us">미장 전체 (스캔 유니버스)</option>
+              <option value="crypto">코인 전체 (스캔 유니버스)</option>
+              <option value="all">전체 유니버스 (국장+미장+코인)</option>
+            </select>
+          </label>
           <label class="fj-note-label">질문
             <textarea data-query-input maxlength="2000" placeholder="예: 전체 이력에서 골든크로스 이후 40봉 수익률 분포는? (매매지시 없이 통계·구조 서술로 답합니다)"></textarea>
           </label>
@@ -106,7 +125,7 @@ const overlayMarkup = (): string => `
         </section>
         <section class="fj-history-section">
           <div class="fj-history-header">
-            <span class="fj-section-title">질의 이력</span>
+            <span class="fj-section-title">질의 이력 · 전체 아카이브 (대시보드 공부방과 동일)</span>
             <button class="fj-history-load" type="button" data-query-refresh>불러오기</button>
           </div>
           <div class="fj-history-list" data-query-list></div>
