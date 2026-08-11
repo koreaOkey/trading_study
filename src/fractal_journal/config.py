@@ -34,7 +34,24 @@ class Settings(BaseSettings):
             "FJ_KIS_TOKEN_CACHE_PATH",
         ),
     )
+    toss_token_cache_path: Path = Field(
+        default=Path(
+            "/home/lee/.cache/toss-openapi/token-cache.json",
+        ),
+        validation_alias=AliasChoices(
+            "TRFJ_TOSS_TOKEN_CACHE_PATH",
+            "FJ_TOSS_TOKEN_CACHE_PATH",
+        ),
+    )
     kis_env_path: Path = Field(default=Path("/home/lee/trading-ta-knowledge/.env"))
+    universe_scan_dir: Path = Field(
+        default=Path("/home/lee/trading-ta-knowledge/out/scans"),
+        validation_alias="TRFJ_UNIVERSE_SCAN_DIR",
+    )
+    universe_base_rate_path: Path = Field(
+        default=Path("/home/lee/trading-ta-knowledge/out/cross_base_rate.json"),
+        validation_alias="TRFJ_UNIVERSE_BASE_RATE_PATH",
+    )
     hermes_python_path: Path = Field(
         default=Path("/home/lee/hermes-agent/venv/bin/python3"),
         validation_alias="TRFJ_HERMES_PYTHON_PATH",
@@ -84,5 +101,7 @@ class Settings(BaseSettings):
     )
     kis_app_key: str = Field(default="", validation_alias="KIS_APP_KEY")
     kis_app_secret: str = Field(default="", validation_alias="KIS_APP_SECRET")
+    toss_client_id: str = Field(default="", validation_alias="TOSS_CLIENT_ID")
+    toss_client_secret: str = Field(default="", validation_alias="TOSS_CLIENT_SECRET")
     cors_origins: list[str] = Field(default_factory=lambda: ["chrome-extension://*"])
     allowed_extension_origins: list[str] = Field(default_factory=list)

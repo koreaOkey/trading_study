@@ -25,15 +25,20 @@ from fractal_journal.chart_query import (
 from fractal_journal.config import Settings
 from fractal_journal.daily_query_series import (
     DAILY_CACHE_DIRNAME,
+    TOSS_DAILY_CACHE_DIRNAME,
     KisDailyQuerySource,
+    TossDailyQuerySource,
     deep_history_throttle,
 )
+from fractal_journal.fallback_provider import FallbackOhlcvProvider
 from fractal_journal.hermes_query import (
     HermesChartQueryService,
+    HermesUniverseQueryService,
     create_chart_query_service,
+    create_universe_query_service,
 )
 from fractal_journal.hermes_review import DecisionReviewer, create_hermes_reviewer
-from fractal_journal.kis_auth import load_credentials
+from fractal_journal.kis_auth import KisCredentials, load_credentials
 from fractal_journal.kis_daily_history import DAILY_TIMEFRAME
 from fractal_journal.kis_provider import KisOhlcvProvider
 from fractal_journal.provider import FixtureOhlcvProvider, OhlcvProvider
@@ -55,6 +60,17 @@ from fractal_journal.store import (
     FileCaptureStore,
     InvalidScreenshotError,
 )
+from fractal_journal.toss_auth import TossCredentials
+from fractal_journal.toss_auth import load_credentials as load_toss_credentials
+from fractal_journal.toss_provider import TossOhlcvProvider
+from fractal_journal.universe_query import (
+    FileUniverseQueryStore,
+    UniverseQueryError,
+    UniverseQueryRecord,
+    UniverseScope,
+    collect_universe_files,
+    new_universe_query_record,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +83,76 @@ class AppServices:
     query_store: FileChartQueryStore
     query_service: HermesChartQueryService
     daily_query_source: KisDailyQuerySource
+    universe_query_store: FileUniverseQueryStore
+    universe_query_service: HermesUniverseQueryService
+
+
+def build_ohlcv_provider(
+    settings: Settings,
+    kis_credentials: KisCredentials | None,
+    toss_credentials: TossCredentials | None,
+) -> OhlcvProvider:
+    """Assemble the market-data chain: Toss primary, KIS fallback, else fixture."""
+    chain: list[OhlcvProvider] = []
+    if toss_credentials is not None:
+        chain.append(
+            TossOhlcvProvider(toss_credentials, settings.toss_token_cache_path),
+        )
+    if kis_credentials is not None:
+        chain.append(
+            KisOhlcvProvider(kis_credentials, settings.kis_token_cache_path),
+        )
+    if not chain:
+        return FixtureOhlcvProvider()
+    if len(chain) == 1:
+        return chain[0]
+    return FallbackOhlcvProvider(tuple(chain))
+
+
+def build_daily_query_source(
+    settings: Settings,
+    kis_credentials: KisCredentials | None,
+    toss_credentials: TossCredentials | None,
+    default_provider: OhlcvProvider,
+) -> KisDailyQuerySource:
+    """Assemble the free-query daily source; Toss-primary when credentialed.
+
+    KIS keeps its dedicated gentler page throttle for deep daily paging; the
+    Toss provider's default 0.5s cadence is already the safe deep-paging pace.
+    """
+    kis_daily = (
+        KisOhlcvProvider(
+            kis_credentials,
+            settings.kis_token_cache_path,
+            history_throttle=deep_history_throttle,
+        )
+        if kis_credentials is not None
+        else None
+    )
+    if toss_credentials is not None:
+        toss_daily = TossOhlcvProvider(
+            toss_credentials,
+            settings.toss_token_cache_path,
+        )
+        provider: OhlcvProvider = (
+            FallbackOhlcvProvider((toss_daily, kis_daily))
+            if kis_daily is not None
+            else toss_daily
+        )
+        return TossDailyQuerySource(
+            provider=provider,
+            cache_store=FileBarSeriesStore(
+                settings.data_dir,
+                dirname=TOSS_DAILY_CACHE_DIRNAME,
+            ),
+        )
+    return KisDailyQuerySource(
+        provider=kis_daily if kis_daily is not None else default_provider,
+        cache_store=FileBarSeriesStore(
+            settings.data_dir,
+            dirname=DAILY_CACHE_DIRNAME,
+        ),
+    )
 
 
 def create_app(
@@ -75,6 +161,7 @@ def create_app(
     provider: OhlcvProvider | None = None,
     reviewer: DecisionReviewer | None = None,
     query_service: HermesChartQueryService | None = None,
+    universe_query_service: HermesUniverseQueryService | None = None,
 ) -> FastAPI:
     resolved_settings = settings or Settings()
     store = FileCaptureStore(
@@ -86,10 +173,15 @@ def create_app(
         resolved_settings.kis_app_key,
         resolved_settings.kis_app_secret,
     )
-    resolved_provider = provider or (
-        KisOhlcvProvider(credentials, resolved_settings.kis_token_cache_path)
-        if credentials is not None
-        else FixtureOhlcvProvider()
+    toss_credentials = load_toss_credentials(
+        resolved_settings.kis_env_path,
+        resolved_settings.toss_client_id,
+        resolved_settings.toss_client_secret,
+    )
+    resolved_provider = provider or build_ohlcv_provider(
+        resolved_settings,
+        credentials,
+        toss_credentials,
     )
     resolved_reviewer = reviewer or create_hermes_reviewer(resolved_settings)
     series_store = FileBarSeriesStore(resolved_settings.data_dir)
@@ -102,22 +194,28 @@ def create_app(
         review_service=DecisionReviewService(evidence_provider, resolved_reviewer),
         query_store=FileChartQueryStore(resolved_settings.data_dir),
         query_service=query_service or create_chart_query_service(resolved_settings),
-        daily_query_source=KisDailyQuerySource(
-            # A dedicated provider with a gentler page throttle: deep daily
-            # paging at the shared 0.05s cadence trips KIS's rate limit.
-            provider=(
-                KisOhlcvProvider(
-                    credentials,
-                    resolved_settings.kis_token_cache_path,
-                    history_throttle=deep_history_throttle,
-                )
-                if provider is None and credentials is not None
-                else resolved_provider
-            ),
-            cache_store=FileBarSeriesStore(
-                resolved_settings.data_dir,
-                dirname=DAILY_CACHE_DIRNAME,
-            ),
+        universe_query_store=FileUniverseQueryStore(resolved_settings.data_dir),
+        universe_query_service=(
+            universe_query_service
+            or create_universe_query_service(resolved_settings)
+        ),
+        daily_query_source=(
+            # An injected provider (tests) bypasses credential-based assembly
+            # and keeps the KIS-named cache directory, as before.
+            KisDailyQuerySource(
+                provider=resolved_provider,
+                cache_store=FileBarSeriesStore(
+                    resolved_settings.data_dir,
+                    dirname=DAILY_CACHE_DIRNAME,
+                ),
+            )
+            if provider is not None
+            else build_daily_query_source(
+                resolved_settings,
+                credentials,
+                toss_credentials,
+                resolved_provider,
+            )
         ),
     )
 
@@ -149,6 +247,7 @@ def _register_routes(app: FastAPI, services: AppServices) -> None:
     _register_bar_series_routes(app, services)
     _register_review_history_routes(app, services)
     _register_chart_query_routes(app, services)
+    _register_universe_query_routes(app, services)
 
 
 def _register_core_routes(app: FastAPI, services: AppServices) -> None:
@@ -497,12 +596,92 @@ def _register_chart_query_routes(app: FastAPI, services: AppServices) -> None:
         _: Annotated[None, Depends(_check_auth(services))],
         symbol: Annotated[str | None, Query(max_length=32)] = None,
         timeframe: Annotated[str | None, Query(max_length=16)] = None,
-        limit: Annotated[int, Query(ge=1, le=50)] = 20,
+        limit: Annotated[int, Query(ge=1, le=200)] = 20,
     ) -> ChartQueryListResponse:
         return ChartQueryListResponse(
             items=services.query_store.list_queries(
                 symbol=symbol,
                 timeframe=timeframe,
+                limit=limit,
+            ),
+        )
+
+
+class UniverseQueryCreateRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    scope: UniverseScope
+    question: str = Field(min_length=1, max_length=2_000)
+
+
+class UniverseQueryResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    query: UniverseQueryRecord
+
+
+class UniverseQueryListResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    items: tuple[UniverseQueryRecord, ...]
+
+
+def _register_universe_query_routes(app: FastAPI, services: AppServices) -> None:
+    @app.post("/api/universe-queries", status_code=status.HTTP_201_CREATED)
+    def create_universe_query(
+        payload: UniverseQueryCreateRequest,
+        _: Annotated[None, Depends(_check_write_auth(services))],
+    ) -> UniverseQueryResponse:
+        try:
+            files = collect_universe_files(
+                services.settings.universe_scan_dir,
+                services.settings.universe_base_rate_path,
+                payload.scope,
+            )
+        except UniverseQueryError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=exc.reason,
+            ) from exc
+        question = payload.question.strip()
+        file_names = tuple(file.filename for file in files)
+        try:
+            answered = services.universe_query_service.ask(
+                scope=payload.scope,
+                question=question,
+                files=files,
+            )
+        except ChartQueryError as exc:
+            record = new_universe_query_record(
+                scope=payload.scope,
+                question=question,
+                status="failed",
+                error_code=exc.reason,
+                data_files=file_names,
+            )
+            services.universe_query_store.append(record)
+            return UniverseQueryResponse(query=record)
+        record = new_universe_query_record(
+            scope=payload.scope,
+            question=question,
+            status="answered",
+            answer=answered.answer,
+            model=answered.model,
+            data_files=file_names,
+            computations=answered.computations,
+        )
+        services.universe_query_store.append(record)
+        return UniverseQueryResponse(query=record)
+
+    @app.get("/api/universe-queries")
+    async def list_universe_queries(
+        _: Annotated[None, Depends(_check_auth(services))],
+        scope: Annotated[str | None, Query(max_length=16)] = None,
+        limit: Annotated[int, Query(ge=1, le=200)] = 20,
+    ) -> UniverseQueryListResponse:
+        return UniverseQueryListResponse(
+            items=services.universe_query_store.list_queries(
+                scope=scope,
                 limit=limit,
             ),
         )

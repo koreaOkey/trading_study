@@ -30,6 +30,7 @@ from fractal_journal.bar_series import BarSeriesError
 from fractal_journal.kis_auth import KisTokenIssueError
 from fractal_journal.kis_daily_history import DAILY_TIMEFRAME
 from fractal_journal.provider import HistoricalBarsRequest, HistoricalStopReason
+from fractal_journal.toss_auth import TossTokenIssueError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -39,6 +40,10 @@ if TYPE_CHECKING:
 
 SEOUL = ZoneInfo("Asia/Seoul")
 DAILY_CACHE_DIRNAME: Final = "kis_daily_query_cache"
+# Toss-primary caches live in their own directory: toss and KIS both serve
+# adjusted prices, but from different adjustment pipelines, so mixing their
+# bars in one CSV would blur which source a cached series came from.
+TOSS_DAILY_CACHE_DIRNAME: Final = "toss_daily_query_cache"
 # HistoricalBarsRequest caps target_bars at 5000 (~20 years of sessions);
 # paging stops naturally at listing start via EMPTY_PAGE before that.
 FULL_HISTORY_TARGET_BARS: Final = 5000
@@ -62,6 +67,7 @@ _FETCH_ERRORS = (
     InvalidOperation,
     json.JSONDecodeError,
     KisTokenIssueError,
+    TossTokenIssueError,
     ValidationError,
     ValueError,
 )
@@ -151,6 +157,16 @@ class KisDailyQuerySource:
             return self.cache_store.load(symbol, DAILY_TIMEFRAME)
         except BarSeriesError:
             return None
+
+
+@dataclass(frozen=True, slots=True)
+class TossDailyQuerySource(KisDailyQuerySource):
+    """Toss-primary daily source with the same fetch/refresh loop.
+
+    The provider is expected to be a Toss-first fallback chain; the separate
+    cache directory (TOSS_DAILY_CACHE_DIRNAME) keeps its series apart from
+    the KIS-only cache.
+    """
 
 
 def _is_fresh(cached: tuple[OhlcvBar, ...], now: datetime) -> bool:
